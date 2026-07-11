@@ -1,50 +1,78 @@
-﻿<?xml version="1.0" encoding="utf-8" ?>
-<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+﻿<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="ScionCarAssistant.MainPage"
              BackgroundColor="Black">
 
-  <Grid RowDefinitions="*,*,*" ColumnDefinitions="*,*" RowSpacing="10" ColumnSpacing="10" Padding="10">
+<Grid RowDefinitions="Auto,4.5*,Auto,1.1*,1.1*" ColumnDefinitions="*,*" RowSpacing="10" ColumnSpacing="10" Padding="10">
+    <!-- Now Playing label - bigger -->
+    <Label x:Name="NowPlayingLabel"
+           Grid.Row="0" Grid.ColumnSpan="2"
+           Text="Nothing playing"
+           FontSize="34"
+           TextColor="White"
+           HorizontalTextAlignment="Center"
+           LineBreakMode="WordWrap"
+           MaxLines="2" />
 
-        <!-- Voice assistant toggle - full width top row -->
-        <Button x:Name="VoiceBtn"
-                Grid.Row="0" Grid.ColumnSpan="2"
-                Text="🎤 VOICE OFF"
-                FontSize="40"
-                BackgroundColor="DarkRed"
-                TextColor="White"
-                Clicked="OnVoiceClicked" />
+    <!-- Push to talk - even more dominant -->
+    <Button x:Name="VoiceBtn"
+            Grid.Row="1" Grid.ColumnSpan="2"
+            Text="PRESS TO TALK"
+            FontSize="46"
+            BackgroundColor="DarkGreen"
+            TextColor="White"
+            Clicked="OnVoiceClicked" />
 
-        <!-- Middle row: Play/Pause, Skip -->
-        <Button x:Name="PlayPauseBtn"
-                Grid.Row="1" Grid.Column="0"
-                Text="▶ PLAY"
-                FontSize="40"
-                BackgroundColor="DarkGreen"
-                TextColor="White"
-                Clicked="OnPlayPauseClicked" />
+    <!-- Reload - short -->
+    <Button x:Name="ReloadBtn"
+            Grid.Row="2" Grid.ColumnSpan="2"
+            Text="RELOAD"
+            FontSize="20"
+            HeightRequest="40"
+            BackgroundColor="#FF355A50"
+            TextColor="White"
+            Clicked="Reload" />
 
-        <Button Grid.Row="1" Grid.Column="1"
-                Text="⏭ SKIP"
-                FontSize="40"
-                BackgroundColor="DarkSlateBlue"
-                TextColor="White"
-                Clicked="OnSkipClicked" />
+    <!-- Play/Pause, Skip -->
+    <Button x:Name="PlayPauseBtn"
+            Grid.Row="3" Grid.Column="0"
+            Text="▶ PLAY"
+            FontSize="24"
+            BackgroundColor="DarkGreen"
+            TextColor="White"
+            Clicked="OnPlayPauseClicked" />
 
-        <!-- Bottom row: Vol Down, Vol Up -->
-        <Button Grid.Row="2" Grid.Column="0"
-                Text="🔉 VOL −"
-                FontSize="35"
-                BackgroundColor="#333"
-                TextColor="White"
-                Clicked="OnVolumeDownClicked" />
+    <Button Grid.Row="3" Grid.Column="1"
+            Text="⏭ SKIP"
+            FontSize="24"
+            BackgroundColor="DarkSlateBlue"
+            TextColor="White"
+            Clicked="OnSkipClicked" />
 
-        <Button Grid.Row="2" Grid.Column="1"
-                Text="🔊 VOL +"
-                FontSize="35"
-                BackgroundColor="#333"
-                TextColor="White"
-                Clicked="OnVolumeUpClicked" />
+    <!-- Vol Down, Vol Up - squished -->
+    <Button Grid.Row="4" Grid.Column="0"
+            Text="🔉 VOL −"
+            FontSize="16"
+            BackgroundColor="#333"
+            TextColor="White"
+            Clicked="OnVolumeDownClicked" />
 
+    <Button Grid.Row="4" Grid.Column="1"
+            Text="🔊 VOL +"
+            FontSize="16"
+            BackgroundColor="#333"
+            TextColor="White"
+            Clicked="OnVolumeUpClicked" />
+
+        <Grid x:Name="PlaylistPopup"
+          Grid.Row="0" Grid.RowSpan="5" Grid.Column="0" Grid.ColumnSpan="2"
+          BackgroundColor="#DD000000"
+          IsVisible="False">
+        <VerticalStackLayout x:Name="PlaylistStack"
+                              VerticalOptions="Center"
+                              Padding="20"
+                              Spacing="12" />
     </Grid>
+
+</Grid>
 </ContentPage>

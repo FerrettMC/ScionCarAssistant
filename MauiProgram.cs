@@ -1,4 +1,5 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using CommunityToolkit.Maui;
+using CommunityToolkit.Maui.Media;
 
 namespace ScionCarAssistant;
 
@@ -8,16 +9,11 @@ public static class MauiProgram
 	{
 		var builder = MauiApp.CreateBuilder();
 		builder
-			.UseMauiApp<App>()
-			.ConfigureFonts(fonts =>
-			{
-				fonts.AddFont("OpenSans-Regular.ttf", "OpenSansRegular");
-				fonts.AddFont("OpenSans-Semibold.ttf", "OpenSansSemibold");
-			});
+				.UseMauiApp<App>()
+				.UseMauiCommunityToolkit();
 
-#if DEBUG
-		builder.Logging.AddDebug();
-#endif
+		builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+		builder.Services.AddTransient<MainPage>();
 
 		return builder.Build();
 	}
