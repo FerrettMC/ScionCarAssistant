@@ -12,6 +12,8 @@ public partial class MainPage : ContentPage
 	bool isPlaying = false;
 	bool isListening = false;
 
+	bool playlistPopup = false;
+
 	readonly SpotifyAuthService _authService = new();
 	readonly ISpeechToText _speechToText;
 	CancellationTokenSource? _pollingCts;
@@ -45,6 +47,12 @@ public partial class MainPage : ContentPage
 		StartPolling();
 	}
 
+	void SetNowPlaying(string text) =>
+			MainThread.BeginInvokeOnMainThread(() => NowPlayingLabel.Text = text);
+
+	void SetPlayPauseText(string text) =>
+			MainThread.BeginInvokeOnMainThread(() => PlayPauseBtn.Text = text);
+
 	void StartPolling()
 	{
 		_pollingCts = new CancellationTokenSource();
@@ -73,6 +81,8 @@ public partial class MainPage : ContentPage
 			{
 				_accessToken = storedToken;
 				NowPlayingLabel.Text = "Logged in";
+				await RefreshPlaybackStateAsync();
+				await Task.Delay(5000);
 				await RefreshPlaybackStateAsync();
 				return;
 			}
@@ -155,10 +165,48 @@ public partial class MainPage : ContentPage
 			};
 			PlaylistStack.Children.Add(label);
 		}
-
+		playlistPopup = true;
 		PlaylistPopup.IsVisible = true;
 		await Task.Delay(10000);
-		PlaylistPopup.IsVisible = false;
+		if (playlistPopup)
+		{
+			PlaylistPopup.IsVisible = false;
+		}
+	}
+
+	async void ShowCommandsPopup()
+	{
+		PlaylistStack.Children.Clear();
+
+		var commands = new[]
+		{
+				"\"Open Spotify\"",
+				"\"Skip\" / \"Next\"",
+				"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
+				"\"Show playlists\"",
+				"\"Play playlist [number]\"",
+				"\"Volume up/down [number]\"",
+				"\"Reload\""
+		};
+
+		foreach (var cmd in commands)
+		{
+			var label = new Label
+			{
+				Text = cmd,
+				FontSize = 28,
+				TextColor = Colors.White,
+				HorizontalTextAlignment = TextAlignment.Center
+			};
+			PlaylistStack.Children.Add(label);
+		}
+		playlistPopup = false;
+		PlaylistPopup.IsVisible = true;
+		await Task.Delay(10000);
+		if (!playlistPopup)
+		{
+			PlaylistPopup.IsVisible = false;
+		}
 	}
 
 	private int StrToInt(string str)
@@ -191,9 +239,9 @@ public partial class MainPage : ContentPage
 
 	async Task<HttpResponseMessage> SendSpotifyRequestAsync(Func<HttpClient, Task<HttpResponseMessage>> request)
 	{
-		using var http = new HttpClient();
+		using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 		http.DefaultRequestHeaders.Authorization =
-				new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
+						new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 
 		var response = await request(http);
 
@@ -208,9 +256,9 @@ public partial class MainPage : ContentPage
 					_accessToken = newToken;
 					await SecureStorage.Default.SetAsync("spotify_access_token", newToken);
 
-					using var retryHttp = new HttpClient();
+					using var retryHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 					retryHttp.DefaultRequestHeaders.Authorization =
-							new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
+									new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 					response = await request(retryHttp);
 				}
 			}
@@ -227,24 +275,43 @@ public partial class MainPage : ContentPage
 			return;
 		}
 
-		var endpoint = isPlaying ? "pause" : "play";
-		var response = await SendSpotifyRequestAsync(http =>
-				http.PutAsync($"https://api.spotify.com/v1/me/player/{endpoint}", null));
-
-		if (response.IsSuccessStatusCode)
+		try
 		{
-			await Task.Delay(300);
 			await RefreshPlaybackStateAsync();
+
+			var endpoint = isPlaying ? "pause" : "play";
+			var response = await SendSpotifyRequestAsync(http =>
+											http.PutAsync($"https://api.spotify.com/v1/me/player/{endpoint}", null));
+
+			if (response.IsSuccessStatusCode)
+			{
+				await Task.Delay(300);
+				await RefreshPlaybackStateAsync();
+			}
+			else
+			{
+				var errorBody = await response.Content.ReadAsStringAsync();
+				System.Diagnostics.Debug.WriteLine($"[PlayPause] 403 body: {errorBody}");
+				NowPlayingLabel.Text = $"Spotify error: {(int)response.StatusCode}";
+			}
 		}
-		else
+		catch (Exception ex)
 		{
-			NowPlayingLabel.Text = $"Spotify error: {(int)response.StatusCode}";
+			System.Diagnostics.Debug.WriteLine($"[PlayPause] FAILED: {ex}");
+			NowPlayingLabel.Text = $"Error: {ex.Message}";
 		}
 	}
 
 	private async void OnVoiceClicked(object? sender, EventArgs e)
 	{
-		if (isListening) return;
+		if (isListening)
+		{
+			// Second tap while listening = force stop
+			_speechCts?.Cancel();
+			await _speechToText.StopListenAsync(CancellationToken.None);
+			ResetVoiceButton();
+			return;
+		}
 
 		try
 		{
@@ -263,6 +330,7 @@ public partial class MainPage : ContentPage
 			}
 
 			_speechCts = new CancellationTokenSource();
+			_speechCts.CancelAfter(TimeSpan.FromSeconds(8));
 
 			await _speechToText.StartListenAsync(new SpeechToTextOptions
 			{
@@ -288,12 +356,16 @@ public partial class MainPage : ContentPage
 	{
 		var heard = args.RecognitionResult.Text?.ToLowerInvariant() ?? "";
 
-
 		await _speechToText.StopListenAsync(CancellationToken.None);
+		await Task.Delay(600);
 
 		if (heard.Contains("open") && heard.Contains("spotify"))
 		{
 			OpenSpotifyApp();
+		}
+		else if (heard.Contains("command"))
+		{
+			ShowCommandsPopup();
 		}
 		else if (heard.Contains("skip") || heard.Contains("next"))
 		{
@@ -495,38 +567,49 @@ public partial class MainPage : ContentPage
 	{
 		if (_accessToken == null) return;
 
-		var response = await SendSpotifyRequestAsync(http =>
-						http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
-
-		if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+		try
 		{
-			NowPlayingLabel.Text = "Nothing playing";
-			isPlaying = false;
-			PlayPauseBtn.Text = "▶ PLAY";
-			return;
+			var response = await SendSpotifyRequestAsync(http =>
+											http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
+
+			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+			{
+				SetNowPlaying("Nothing playing");
+				isPlaying = false;
+				SetPlayPauseText("▶ PLAY");
+				return;
+			}
+
+			if (!response.IsSuccessStatusCode)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Refresh] Non-success: {(int)response.StatusCode}");
+				return;
+			}
+
+			var json = await response.Content.ReadAsStringAsync();
+			using var doc = System.Text.Json.JsonDocument.Parse(json);
+			var root = doc.RootElement;
+
+			isPlaying = root.TryGetProperty("is_playing", out var playingProp) && playingProp.GetBoolean();
+			SetPlayPauseText(isPlaying ? "PAUSE" : "▶ PLAY");
+
+			if (!root.TryGetProperty("item", out var track) || track.ValueKind != System.Text.Json.JsonValueKind.Object)
+			{
+				SetNowPlaying(isPlaying ? "Playing..." : "Nothing playing");
+				return;
+			}
+
+			var title = track.GetProperty("name").GetString();
+			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
+											? artists[0].GetProperty("name").GetString()
+											: "Unknown artist";
+
+			SetNowPlaying($"{title} — {artist}");
 		}
-
-		if (!response.IsSuccessStatusCode)
-			return;
-
-		var json = await response.Content.ReadAsStringAsync();
-		using var doc = System.Text.Json.JsonDocument.Parse(json);
-		var root = doc.RootElement;
-
-		isPlaying = root.TryGetProperty("is_playing", out var playingProp) && playingProp.GetBoolean();
-		PlayPauseBtn.Text = isPlaying ? "PAUSE" : "▶ PLAY";
-
-		if (!root.TryGetProperty("item", out var track) || track.ValueKind != System.Text.Json.JsonValueKind.Object)
+		catch (Exception ex)
 		{
-			NowPlayingLabel.Text = isPlaying ? "Playing..." : "Nothing playing";
-			return;
+			System.Diagnostics.Debug.WriteLine($"[Refresh] FAILED: {ex}");
+			SetNowPlaying($"Refresh error: {ex.Message}");
 		}
-
-		var title = track.GetProperty("name").GetString();
-		var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-				? artists[0].GetProperty("name").GetString()
-				: "Unknown artist";
-
-		NowPlayingLabel.Text = $"{title} — {artist}";
 	}
 }
