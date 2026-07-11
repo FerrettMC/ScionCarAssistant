@@ -18,9 +18,14 @@ public partial class MainPage : ContentPage
 	readonly ISpeechToText _speechToText;
 	CancellationTokenSource? _pollingCts;
 	CancellationTokenSource? _speechCts;
+	public static event Action? AppResumed;
+	public static void NotifyAppResumed() => AppResumed?.Invoke();
 	string? _accessToken;
 
 	bool _suppressPoll = false;
+	IDispatcherTimer? _visualizerTimer;
+	List<BoxView> _bars = new();
+	Random _rand = new();
 
 	List<(string name, string uri)> _playlists = new();
 
@@ -35,6 +40,22 @@ public partial class MainPage : ContentPage
 	{
 		InitializeComponent();
 		_speechToText = speechToText;
+		AppResumed -= OnAppResumed;
+		AppResumed += OnAppResumed;
+		InitVisualizer();
+	}
+
+	protected override void OnDisappearing()
+	{
+		base.OnDisappearing();
+		_visualizerTimer?.Stop();
+	}
+
+	async void OnAppResumed()
+	{
+		if (_accessToken == null) return;
+		await Task.Delay(1000);
+		await RefreshPlaybackStateAsync();
 	}
 
 	protected override async void OnAppearing()
@@ -42,9 +63,17 @@ public partial class MainPage : ContentPage
 		base.OnAppearing();
 		await EnsureLoggedInAsync();
 		await FetchPlaylistsAsync();
-		_speechToText.RecognitionResultCompleted -= OnSpeechCompleted; // avoid double-subscribe
+		_speechToText.RecognitionResultCompleted -= OnSpeechCompleted;
 		_speechToText.RecognitionResultCompleted += OnSpeechCompleted;
 		StartPolling();
+
+		_ = AutoHideQuickOpenButton(); // fire-and-forget, doesn't block the rest of OnAppearing
+	}
+
+	async Task AutoHideQuickOpenButton()
+	{
+		await Task.Delay(2000);
+		QuickOpenSpotifyBtn.IsVisible = false;
 	}
 
 	void SetNowPlaying(string text) =>
@@ -267,8 +296,17 @@ public partial class MainPage : ContentPage
 		return response;
 	}
 
+	private void OnQuickOpenSpotifyClicked(object? sender, EventArgs e)
+	{
+		OpenSpotifyApp();
+		QuickOpenSpotifyBtn.IsVisible = false;
+	}
+
+	void HideQuickOpenButton() => QuickOpenSpotifyBtn.IsVisible = false;
+
 	private async void OnPlayPauseClicked(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		if (_accessToken == null)
 		{
 			NowPlayingLabel.Text = "Not logged in yet";
@@ -304,6 +342,7 @@ public partial class MainPage : ContentPage
 
 	private async void OnVoiceClicked(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		if (isListening)
 		{
 			// Second tap while listening = force stop
@@ -354,6 +393,7 @@ public partial class MainPage : ContentPage
 
 	async void OnSpeechCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs args)
 	{
+		HideQuickOpenButton();
 		var heard = args.RecognitionResult.Text?.ToLowerInvariant() ?? "";
 
 		await _speechToText.StopListenAsync(CancellationToken.None);
@@ -475,18 +515,21 @@ public partial class MainPage : ContentPage
 
 	private void OnVolumeUpClicked(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		var audioManager = (AudioManager?)Android.App.Application.Context.GetSystemService(Context.AudioService);
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Raise, VolumeNotificationFlags.ShowUi);
 	}
 
 	private void OnVolumeDownClicked(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		var audioManager = (AudioManager?)Android.App.Application.Context.GetSystemService(Context.AudioService);
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Lower, VolumeNotificationFlags.ShowUi);
 	}
 
 	private async void Reload(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		await RefreshPlaybackStateAsync();
 	}
 
@@ -537,6 +580,7 @@ public partial class MainPage : ContentPage
 
 	private async void OnSkipClicked(object? sender, EventArgs e)
 	{
+		HideQuickOpenButton();
 		try
 		{
 			if (_accessToken == null)
@@ -610,6 +654,27 @@ public partial class MainPage : ContentPage
 		{
 			System.Diagnostics.Debug.WriteLine($"[Refresh] FAILED: {ex}");
 			SetNowPlaying($"Refresh error: {ex.Message}");
+		}
+	}
+	void InitVisualizer()
+	{
+		_bars = new List<BoxView> { Bar1, Bar2, Bar3, Bar4, Bar5, Bar6, Bar7, Bar8, Bar9 };
+
+		_visualizerTimer = Dispatcher.CreateTimer();
+		_visualizerTimer.Interval = TimeSpan.FromMilliseconds(280);
+		_visualizerTimer.Tick += (s, e) => AnimateBars();
+		_visualizerTimer.Start();
+	}
+
+	void AnimateBars()
+	{
+		for (int i = 0; i < _bars.Count; i++)
+		{
+			var bar = _bars[i];
+			double target = isPlaying ? _rand.Next(6, 38) : 6;
+
+			new Animation(v => bar.HeightRequest = v, bar.HeightRequest, target)
+					.Commit(this, $"BarAnim{i}", 16, 260, Easing.SinInOut);
 		}
 	}
 }
