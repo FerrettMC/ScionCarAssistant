@@ -56,7 +56,7 @@ Basically I got tired of fiddling with my phone while driving so I made this. Ta
 
 ### Build & run
 
-```bash
+bash
 git clone https://github.com/yourusername/ScionCarAssistant.git
 cd ScionCarAssistant
 dotnet build -t:Run -f net10.0-android
