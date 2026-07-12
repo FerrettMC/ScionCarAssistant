@@ -12,7 +12,7 @@ public partial class MainPage : ContentPage
 	bool isPlaying = false;
 	bool isListening = false;
 
-	bool playlistPopup = false;
+	string popupType = "";
 
 	readonly SpotifyAuthService _authService = new();
 	readonly ISpeechToText _speechToText;
@@ -61,13 +61,15 @@ public partial class MainPage : ContentPage
 	protected override async void OnAppearing()
 	{
 		base.OnAppearing();
-		await EnsureLoggedInAsync();
-		await FetchPlaylistsAsync();
+
 		_speechToText.RecognitionResultCompleted -= OnSpeechCompleted;
 		_speechToText.RecognitionResultCompleted += OnSpeechCompleted;
+
+		await EnsureLoggedInAsync();
+		await FetchPlaylistsAsync();
 		StartPolling();
 
-		_ = AutoHideQuickOpenButton(); // fire-and-forget, doesn't block the rest of OnAppearing
+		_ = AutoHideQuickOpenButton();
 	}
 
 	async Task AutoHideQuickOpenButton()
@@ -91,7 +93,7 @@ public partial class MainPage : ContentPage
 {
 	while (!token.IsCancellationRequested)
 	{
-		await Task.Delay(8000, token).ContinueWith(_ => { });
+		await Task.Delay(4000, token).ContinueWith(_ => { });
 		if (token.IsCancellationRequested) break;
 		if (!isListening && !_suppressPoll)
 		{
@@ -194,10 +196,10 @@ public partial class MainPage : ContentPage
 			};
 			PlaylistStack.Children.Add(label);
 		}
-		playlistPopup = true;
+		popupType = "showplaylists";
 		PlaylistPopup.IsVisible = true;
 		await Task.Delay(10000);
-		if (playlistPopup)
+		if (popupType == "showplaylists")
 		{
 			PlaylistPopup.IsVisible = false;
 		}
@@ -210,12 +212,15 @@ public partial class MainPage : ContentPage
 		var commands = new[]
 		{
 				"\"Open Spotify\"",
+				"\"Play __ by __\"",
+				"\"Add __ by __ to the queue\"",
 				"\"Skip\" / \"Next\"",
 				"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
 				"\"Show playlists\"",
-				"\"Play playlist [number]\"",
+				"\"Playlist [number]\"",
 				"\"Volume up/down [number]\"",
-				"\"Reload\""
+				"\"Reload\"",
+				"\"Info\""
 		};
 
 		foreach (var cmd in commands)
@@ -229,15 +234,195 @@ public partial class MainPage : ContentPage
 			};
 			PlaylistStack.Children.Add(label);
 		}
-		playlistPopup = false;
+		popupType = "showcommands";
 		PlaylistPopup.IsVisible = true;
 		await Task.Delay(10000);
-		if (!playlistPopup)
+		if (popupType == "showcommands")
 		{
 			PlaylistPopup.IsVisible = false;
 		}
 	}
 
+	async void showInfo()
+	{
+		if (_accessToken == null) return;
+		try
+		{
+			PlaylistStack.Children.Clear();
+			var response = await SendSpotifyRequestAsync(http =>
+											http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
+
+			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+			{
+				return;
+			}
+			if (!response.IsSuccessStatusCode)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Refresh] Non-success: {(int)response.StatusCode}");
+				return;
+			}
+
+			var json = await response.Content.ReadAsStringAsync();
+			using var doc = System.Text.Json.JsonDocument.Parse(json);
+			var root = doc.RootElement;
+
+			isPlaying = root.TryGetProperty("is_playing", out var playingProp) && playingProp.GetBoolean();
+
+			if (!isPlaying) return;
+
+			if (!root.TryGetProperty("item", out var track) || track.ValueKind != System.Text.Json.JsonValueKind.Object)
+			{
+				return;
+			}
+
+
+			var title = track.GetProperty("name").GetString();
+			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
+											? artists[0].GetProperty("name").GetString()
+											: "Unknown artist";
+
+			string? playlistName = null;
+			if (root.TryGetProperty("context", out var context) &&
+					context.ValueKind == System.Text.Json.JsonValueKind.Object &&
+					context.TryGetProperty("type", out var ctxType) &&
+					ctxType.GetString() == "playlist" &&
+					context.TryGetProperty("uri", out var ctxUri))
+			{
+				var uri = ctxUri.GetString();
+				playlistName = _playlists.FirstOrDefault(p => p.uri == uri).name;
+			}
+			string info = $"{title}\n\nby {artist}\n\n-{playlistName}-";
+			var label = new Label
+			{
+				Text = info,
+				FontSize = 35,
+				TextColor = Colors.White,
+				HorizontalTextAlignment = TextAlignment.Center
+			};
+
+			PlaylistStack.Children.Add(label);
+			popupType = "info";
+			PlaylistPopup.IsVisible = true;
+			await Task.Delay(10000);
+			if (popupType == "info")
+			{
+				PlaylistPopup.IsVisible = false;
+			}
+
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[info] FAILED: {ex}");
+			SetNowPlaying($"info error: {ex.Message}");
+		}
+	}
+
+	async void playSong(string song, string artist)
+	{
+		if (_accessToken == null) return;
+		try
+		{
+			string query = string.IsNullOrWhiteSpace(artist)
+		? Uri.EscapeDataString($"track:{song}")
+		: Uri.EscapeDataString($"track:{song} artist:{artist}");
+			string url = $"https://api.spotify.com/v1/search?q={query}&type=track&limit=1";
+			var response = await SendSpotifyRequestAsync(http => http.GetAsync(url));
+			var json = await response.Content.ReadAsStringAsync();
+			using var doc = System.Text.Json.JsonDocument.Parse(json);
+			var tracks = doc.RootElement.GetProperty("tracks").GetProperty("items");
+
+			if (tracks.GetArrayLength() == 0)
+			{
+				SetNowPlaying("Couldn't find song.");
+				return;
+			}
+
+			var trackUri = tracks[0].GetProperty("uri").GetString();
+
+			var body = new System.Text.Json.Nodes.JsonObject
+			{
+				["uris"] = new System.Text.Json.Nodes.JsonArray { trackUri }
+			};
+
+			var playResponse = await SendSpotifyRequestAsync(http =>
+					http.PutAsync("https://api.spotify.com/v1/me/player/play",
+							new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json")));
+
+			if (playResponse.IsSuccessStatusCode)
+			{
+				for (int attempt = 0; attempt < 3; attempt++)
+				{
+					await Task.Delay(400);
+					await RefreshPlaybackStateAsync();
+					if (isPlaying) break;
+				}
+			}
+			else
+			{
+				SetNowPlaying($"Play error: {(int)playResponse.StatusCode}");
+			}
+		}
+
+		catch (Exception ex)
+		{
+			{
+				System.Diagnostics.Debug.WriteLine($"[play song] FAILED: {ex}");
+				SetNowPlaying($"play song error: {ex.Message}");
+			}
+		}
+	}
+
+
+	async void queueSong(string song, string artist)
+	{
+		if (_accessToken == null) return;
+		try
+		{
+			string query = string.IsNullOrWhiteSpace(artist)
+		? Uri.EscapeDataString($"track:{song}")
+		: Uri.EscapeDataString($"track:{song} artist:{artist}");
+			string url = $"https://api.spotify.com/v1/search?q={query}&type=track&limit=1";
+			var response = await SendSpotifyRequestAsync(http => http.GetAsync(url));
+			var json = await response.Content.ReadAsStringAsync();
+			using var doc = System.Text.Json.JsonDocument.Parse(json);
+			var tracks = doc.RootElement.GetProperty("tracks").GetProperty("items");
+
+			if (tracks.GetArrayLength() == 0)
+			{
+				SetNowPlaying("Couldn't find song.");
+				return;
+			}
+
+			var trackUri = tracks[0].GetProperty("uri").GetString();
+			var trackName = tracks[0].GetProperty("name").GetString();
+
+			if (trackUri == null) return;
+
+			string escapedUri = Uri.EscapeDataString(trackUri);
+			var queueResponse = await SendSpotifyRequestAsync(http =>
+					http.PostAsync($"https://api.spotify.com/v1/me/player/queue?uri={escapedUri}", null));
+
+			if (queueResponse.IsSuccessStatusCode)
+			{
+				SetNowPlaying($"Queued: {trackName}");
+			}
+			else
+			{
+				SetNowPlaying($"Queue error: {(int)queueResponse.StatusCode}");
+			}
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[queue song] FAILED: {ex}");
+			SetNowPlaying($"queue song error: {ex.Message}");
+		}
+	}
+
+	void OnPlaylistPopupTapped(object? sender, TappedEventArgs e)
+	{
+		popupType = "";
+		PlaylistPopup.IsVisible = false;
+	}
 	private int StrToInt(string str)
 	{
 		return str switch
@@ -304,9 +489,12 @@ public partial class MainPage : ContentPage
 
 	void HideQuickOpenButton() => QuickOpenSpotifyBtn.IsVisible = false;
 
+	void HideScreenText() => PlaylistPopup.IsVisible = false;
+
 	private async void OnPlayPauseClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		if (_accessToken == null)
 		{
 			NowPlayingLabel.Text = "Not logged in yet";
@@ -343,6 +531,7 @@ public partial class MainPage : ContentPage
 	private async void OnVoiceClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		if (isListening)
 		{
 			// Second tap while listening = force stop
@@ -394,14 +583,22 @@ public partial class MainPage : ContentPage
 	async void OnSpeechCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs args)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		var heard = args.RecognitionResult.Text?.ToLowerInvariant() ?? "";
-
+		System.Diagnostics.Debug.WriteLine($"[Heard] \"{heard}\"");
 		await _speechToText.StopListenAsync(CancellationToken.None);
 		await Task.Delay(600);
+
+		string[] words = heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+		bool hasQueueWord = words.Contains("queue") || words.Contains("q");
 
 		if (heard.Contains("open") && heard.Contains("spotify"))
 		{
 			OpenSpotifyApp();
+		}
+		if (heard.Contains("info"))
+		{
+			showInfo();
 		}
 		else if (heard.Contains("command"))
 		{
@@ -419,9 +616,57 @@ public partial class MainPage : ContentPage
 		{
 			Reload(null, EventArgs.Empty);
 		}
+		else if (heard.Contains("play") && !heard.Contains("playlist") && heard.Length != 4)
+		{
+			if (words[0] != "play") return;
+
+			int byIndex = Array.IndexOf(words, "by");
+
+			string songName;
+			string artistName = "";
+
+			if (byIndex > 1 && byIndex < words.Length - 1)
+			{
+				songName = string.Join(" ", words[1..byIndex]);
+				artistName = string.Join(" ", words[(byIndex + 1)..]);
+			}
+			else
+			{
+				songName = string.Join(" ", words[1..]);
+			}
+
+			if (artistName == "geo") artistName = "gio.";
+			if (artistName == "halsey") artistName = "hulvey";
+
+			NowPlayingLabel.Text = artistName == ""
+					? $"Searching {songName}"
+					: $"Searching {songName} - {artistName}";
+
+			playSong(songName, artistName);
+		}
+
+
+		else if (heard.Contains("add") && heard.Contains("by") && heard.Contains("to") && hasQueueWord)
+		{
+			if (words[0] != "add") return;
+
+			int byIndex = Array.IndexOf(words, "by");
+			int toIndex = Array.LastIndexOf(words, "to");
+
+			if (byIndex <= 1 || toIndex <= byIndex + 1 || toIndex >= words.Length) return;
+
+			string songName = string.Join(" ", words[1..byIndex]);
+			string artistName = string.Join(" ", words[(byIndex + 1)..toIndex]);
+
+			if (artistName == "geo") artistName = "gio.";
+			if (artistName == "halsey") artistName = "hulvey";
+
+			NowPlayingLabel.Text = $"Searching {songName} - {artistName}";
+
+			queueSong(songName, artistName);
+		}
 		else if (heard.Contains("playlist"))
 		{
-			var words = heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 			int number = 1;
 			foreach (var word in words)
@@ -443,7 +688,6 @@ public partial class MainPage : ContentPage
 		{
 			if (heard.Contains("up"))
 			{
-				var words = heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 				int amt = 1;
 				foreach (var word in words)
@@ -462,7 +706,6 @@ public partial class MainPage : ContentPage
 			}
 			else
 			{
-				var words = heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
 				int amt = 1;
 				foreach (var word in words)
@@ -484,7 +727,7 @@ public partial class MainPage : ContentPage
 
 		else
 		{
-			NowPlayingLabel.Text = "Reload please";
+			NowPlayingLabel.Text = "Sorry, I didn't get that.";
 		}
 
 		ResetVoiceButton();
@@ -516,6 +759,7 @@ public partial class MainPage : ContentPage
 	private void OnVolumeUpClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		var audioManager = (AudioManager?)Android.App.Application.Context.GetSystemService(Context.AudioService);
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Raise, VolumeNotificationFlags.ShowUi);
 	}
@@ -523,6 +767,7 @@ public partial class MainPage : ContentPage
 	private void OnVolumeDownClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		var audioManager = (AudioManager?)Android.App.Application.Context.GetSystemService(Context.AudioService);
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Lower, VolumeNotificationFlags.ShowUi);
 	}
@@ -530,6 +775,7 @@ public partial class MainPage : ContentPage
 	private async void Reload(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		await RefreshPlaybackStateAsync();
 	}
 
@@ -581,6 +827,7 @@ public partial class MainPage : ContentPage
 	private async void OnSkipClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
+		HideScreenText();
 		try
 		{
 			if (_accessToken == null)
@@ -647,6 +894,7 @@ public partial class MainPage : ContentPage
 			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
 											? artists[0].GetProperty("name").GetString()
 											: "Unknown artist";
+
 
 			SetNowPlaying($"{title} — {artist}");
 		}

@@ -81,9 +81,13 @@
             Clicked="OnVolumeUpClicked" />
 
         <Grid x:Name="PlaylistPopup"
+                
           Grid.Row="0" Grid.RowSpan="6" Grid.Column="0" Grid.ColumnSpan="2"
           BackgroundColor="#DD000000"
           IsVisible="False">
+          <Grid.GestureRecognizers>
+                <TapGestureRecognizer Tapped="OnPlaylistPopupTapped" />
+        </Grid.GestureRecognizers>
         <VerticalStackLayout x:Name="PlaylistStack"
                               VerticalOptions="Center"
                               Padding="20"
