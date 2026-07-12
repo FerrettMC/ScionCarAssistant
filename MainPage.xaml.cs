@@ -12,6 +12,11 @@ public partial class MainPage : ContentPage
 	bool isPlaying = false;
 	bool isListening = false;
 
+	IDispatcherTimer? _progressTimer;
+	double _currentProgressMs = 0;
+	double _currentDurationMs = 0;
+	DateTime _lastProgressUpdate = DateTime.UtcNow;
+
 	string popupType = "";
 
 	readonly SpotifyAuthService _authService = new();
@@ -43,12 +48,14 @@ public partial class MainPage : ContentPage
 		AppResumed -= OnAppResumed;
 		AppResumed += OnAppResumed;
 		InitVisualizer();
+
 	}
 
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
 		_visualizerTimer?.Stop();
+		_progressTimer?.Stop();
 	}
 
 	async void OnAppResumed()
@@ -102,6 +109,13 @@ public partial class MainPage : ContentPage
 		}
 	}
 }, token);
+	}
+
+	static string FormatTime(double ms)
+	{
+		if (ms < 0) ms = 0;
+		var ts = TimeSpan.FromMilliseconds(ms);
+		return $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
 	}
 	async Task EnsureLoggedInAsync()
 	{
@@ -168,6 +182,13 @@ public partial class MainPage : ContentPage
 
 				var name = item.GetProperty("name").GetString() ?? "Unknown";
 				var uri = item.GetProperty("uri").GetString() ?? "";
+				var ownerId = item.TryGetProperty("owner", out var owner) && owner.TryGetProperty("id", out var ownerIdProp)
+						? ownerIdProp.GetString()
+						: null;
+
+				// Optionally skip Spotify-owned playlists
+				if (ownerId == "spotify") continue;
+
 				_playlists.Add((name, uri));
 			}
 
@@ -213,6 +234,7 @@ public partial class MainPage : ContentPage
 		{
 				"\"Open Spotify\"",
 				"\"Play __ by __\"",
+				"\"Random\"",
 				"\"Add __ by __ to the queue\"",
 				"\"Skip\" / \"Next\"",
 				"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
@@ -372,8 +394,70 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	async void QueueRandomSongFromAllPlaylistsAsync()
+	{
+		if (_accessToken == null || _playlists.Count == 0)
+		{
+			NowPlayingLabel.Text = "No playlists loaded";
+			return;
+		}
 
-	async void queueSong(string song, string artist)
+		var allSongs = new List<(string song, string artist)>();
+
+		foreach (var (name, uri) in _playlists)
+		{
+			try
+			{
+				var playlistId = uri.Split(':').Last();
+				var response = await SendSpotifyRequestAsync(http =>
+						http.GetAsync($"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=100"));
+
+				if (!response.IsSuccessStatusCode)
+				{
+					System.Diagnostics.Debug.WriteLine($"[all songs] skipped {name}: {(int)response.StatusCode}");
+					continue; // skip this playlist, keep going
+				}
+
+				var json = await response.Content.ReadAsStringAsync();
+				using var doc = System.Text.Json.JsonDocument.Parse(json);
+				var items = doc.RootElement.GetProperty("items");
+
+				foreach (var item in items.EnumerateArray())
+				{
+					if (item.TryGetProperty("item", out var track) &&
+						track.ValueKind == System.Text.Json.JsonValueKind.Object &&
+						track.TryGetProperty("name", out var nameProp))
+					{
+						var songName = nameProp.GetString();
+						if (string.IsNullOrEmpty(songName)) continue;
+
+						var artistName = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
+								? artists[0].GetProperty("name").GetString() ?? ""
+								: "";
+
+						allSongs.Add((songName, artistName));
+					}
+				}
+			}
+			catch (Exception ex)
+			{
+				System.Diagnostics.Debug.WriteLine($"[all songs] FAILED on {name}: {ex}");
+			}
+		}
+
+		if (allSongs.Count == 0)
+		{
+			NowPlayingLabel.Text = "Couldn't get any songs";
+			return;
+		}
+
+		var (chosenSong, chosenArtist) = allSongs[_rand.Next(allSongs.Count)];
+		NowPlayingLabel.Text = $"Queueing: {chosenSong} - {chosenArtist}";
+		queueSong(chosenSong, chosenArtist, true);
+
+	}
+
+	async void queueSong(string song, string artist, bool shouldSkip = false)
 	{
 		if (_accessToken == null) return;
 		try
@@ -405,6 +489,11 @@ public partial class MainPage : ContentPage
 			if (queueResponse.IsSuccessStatusCode)
 			{
 				SetNowPlaying($"Queued: {trackName}");
+				if (shouldSkip)
+				{
+					await Task.Delay(300);
+					OnSkipClicked(null, EventArgs.Empty);
+				}
 			}
 			else
 			{
@@ -599,6 +688,10 @@ public partial class MainPage : ContentPage
 		if (heard.Contains("info"))
 		{
 			showInfo();
+		}
+		if (heard.Contains("random"))
+		{
+			QueueRandomSongFromAllPlaylistsAsync();
 		}
 		else if (heard.Contains("command"))
 		{
@@ -868,6 +961,13 @@ public partial class MainPage : ContentPage
 				SetNowPlaying("Nothing playing");
 				isPlaying = false;
 				SetPlayPauseText("▶ PLAY");
+				_currentDurationMs = 0;
+				MainThread.BeginInvokeOnMainThread(() =>
+				{
+					SongProgressBar.Progress = 0;
+					DurationLabel.Text = "0:00";
+					ElapsedLabel.Text = "0:00";
+				});
 				return;
 			}
 
@@ -895,6 +995,18 @@ public partial class MainPage : ContentPage
 											? artists[0].GetProperty("name").GetString()
 											: "Unknown artist";
 
+			var progressMs = root.TryGetProperty("progress_ms", out var progressProp) ? progressProp.GetInt64() : 0;
+			var durationMs = track.TryGetProperty("duration_ms", out var durationProp) ? durationProp.GetInt64() : 0;
+
+			_currentProgressMs = progressMs;
+			_currentDurationMs = durationMs;
+			_lastProgressUpdate = DateTime.UtcNow;
+
+			MainThread.BeginInvokeOnMainThread(() =>
+			{
+				DurationLabel.Text = FormatTime(durationMs);
+				ElapsedLabel.Text = FormatTime(progressMs);
+			});
 
 			SetNowPlaying($"{title} — {artist}");
 		}
@@ -912,6 +1024,24 @@ public partial class MainPage : ContentPage
 		_visualizerTimer.Interval = TimeSpan.FromMilliseconds(280);
 		_visualizerTimer.Tick += (s, e) => AnimateBars();
 		_visualizerTimer.Start();
+
+		_progressTimer = Dispatcher.CreateTimer();
+		_progressTimer.Interval = TimeSpan.FromMilliseconds(250);
+		_progressTimer.Tick += (s, e) => TickProgressBar();
+		_progressTimer.Start();
+	}
+
+	void TickProgressBar()
+	{
+		if (!isPlaying || _currentDurationMs <= 0)
+			return;
+
+		var elapsed = (DateTime.UtcNow - _lastProgressUpdate).TotalMilliseconds;
+		var estimatedProgress = _currentProgressMs + elapsed;
+		double fraction = Math.Min(estimatedProgress / _currentDurationMs, 1.0);
+
+		SongProgressBar.Progress = fraction;
+		ElapsedLabel.Text = FormatTime(Math.Min(estimatedProgress, _currentDurationMs));
 	}
 
 	void AnimateBars()

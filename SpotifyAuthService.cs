@@ -8,7 +8,7 @@ public class SpotifyAuthService
 {
   const string ClientId = "33592ce32ab54f0bbcba17a4170bcebc";
   const string RedirectUri = "sciontacar://callback";
-  const string Scopes = "user-modify-playback-state user-read-playback-state playlist-read-private";
+  const string Scopes = "user-modify-playback-state user-read-playback-state playlist-read-private playlist-read-collaborative";
 
   string? _codeVerifier;
 
