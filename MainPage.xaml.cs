@@ -231,19 +231,20 @@ public partial class MainPage : ContentPage
 		PlaylistStack.Children.Clear();
 
 		var commands = new[]
-		{
-				"\"Open Spotify\"",
-				"\"Play __ by __\"",
-				"\"Random\"",
-				"\"Add __ by __ to the queue\"",
-				"\"Skip\" / \"Next\"",
-				"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
-				"\"Show playlists\"",
-				"\"Playlist [number]\"",
-				"\"Volume up/down [number]\"",
-				"\"Reload\"",
-				"\"Info\""
-		};
+{
+			"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
+			"\"Skip\" / \"Next\"",
+			"\"Play __ by __\"",
+			"\"Volume up/down [number]\"",
+			"\"Add __ by __ to the queue\"",
+			"\"Random\"",
+			"\"Show Queue\"",
+			"\"Show playlists\"",
+			"\"Playlist [number]\"",
+			"\"Info\"",
+			"\"Open Spotify\"",
+			"\"Reload\""
+	};
 
 		foreach (var cmd in commands)
 		{
@@ -337,6 +338,94 @@ public partial class MainPage : ContentPage
 			System.Diagnostics.Debug.WriteLine($"[info] FAILED: {ex}");
 			SetNowPlaying($"info error: {ex.Message}");
 		}
+	}
+
+	async Task<List<(string song, string artist)>> GetUpcomingQueueAsync(int maxCount = 8)
+	{
+		var upcoming = new List<(string song, string artist)>();
+		if (_accessToken == null) return upcoming;
+
+		try
+		{
+			var response = await SendSpotifyRequestAsync(http =>
+					http.GetAsync("https://api.spotify.com/v1/me/player/queue"));
+
+			if (!response.IsSuccessStatusCode)
+			{
+				System.Diagnostics.Debug.WriteLine($"[Queue] Non-success: {(int)response.StatusCode}");
+				return upcoming;
+			}
+
+			var json = await response.Content.ReadAsStringAsync();
+			using var doc = System.Text.Json.JsonDocument.Parse(json);
+			var root = doc.RootElement;
+
+			if (!root.TryGetProperty("queue", out var queueArray) ||
+					queueArray.ValueKind != System.Text.Json.JsonValueKind.Array)
+			{
+				return upcoming;
+			}
+
+			foreach (var item in queueArray.EnumerateArray())
+			{
+				if (upcoming.Count >= maxCount) break;
+
+				var name = item.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
+				if (string.IsNullOrEmpty(name)) continue;
+
+				var artist = item.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
+						? artists[0].GetProperty("name").GetString() ?? ""
+						: "";
+
+				upcoming.Add((name, artist));
+			}
+			return upcoming;
+		}
+		catch (Exception ex)
+		{
+			System.Diagnostics.Debug.WriteLine($"[Queue] FAILED: {ex}");
+		}
+
+		return upcoming;
+	}
+
+	async void ShowUpcomingQueue()
+	{
+		PlaylistStack.Children.Clear();
+		List<(string, string)> queue = await GetUpcomingQueueAsync();
+		if (queue.Count == 0)
+		{
+			NowPlayingLabel.Text = "No songs in queue";
+			return;
+		}
+		int i = 0;
+		foreach (var (song, artist) in queue)
+		{
+			var color = i switch
+			{
+				0 => Colors.Green,
+				1 => Colors.Orange,
+				2 => Colors.Yellow,
+				_ => Colors.White
+			};
+			var label = new Label
+			{
+				Text = $"{song} - {artist}",
+				FontSize = 32,
+				TextColor = color,
+				HorizontalTextAlignment = TextAlignment.Center
+			};
+			PlaylistStack.Children.Add(label);
+			i++;
+		}
+		popupType = "showqueue";
+		PlaylistPopup.IsVisible = true;
+		await Task.Delay(10000);
+		if (popupType == "showqueue")
+		{
+			PlaylistPopup.IsVisible = false;
+		}
+
 	}
 
 	async void playSong(string song, string artist)
@@ -662,6 +751,8 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+
+
 	void ResetVoiceButton()
 	{
 		isListening = false;
@@ -679,19 +770,24 @@ public partial class MainPage : ContentPage
 		await Task.Delay(600);
 
 		string[] words = heard.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-		bool hasQueueWord = words.Contains("queue") || words.Contains("q");
+		bool hasQueueWord = words.Contains("queue") || words.Contains("q") || words.Contains("cute") || words.Contains("cue");
+		bool hasAddWord = words.Contains("and") || words.Contains("add");
 
 		if (heard.Contains("open") && heard.Contains("spotify"))
 		{
 			OpenSpotifyApp();
 		}
-		if (heard.Contains("info"))
+		else if (heard.Contains("info"))
 		{
 			showInfo();
 		}
-		if (heard.Contains("random"))
+		else if (heard.Contains("random"))
 		{
 			QueueRandomSongFromAllPlaylistsAsync();
+		}
+		else if ((heard.Contains("show") && hasQueueWord) || heard.Equals("so cute"))
+		{
+			ShowUpcomingQueue();
 		}
 		else if (heard.Contains("command"))
 		{
@@ -739,22 +835,35 @@ public partial class MainPage : ContentPage
 		}
 
 
-		else if (heard.Contains("add") && heard.Contains("by") && heard.Contains("to") && hasQueueWord)
+		else if (hasAddWord && heard.Contains("to") && hasQueueWord)
 		{
-			if (words[0] != "add") return;
+			if (words[0] != "add" && words[0] != "and") return;
 
-			int byIndex = Array.IndexOf(words, "by");
 			int toIndex = Array.LastIndexOf(words, "to");
+			int byIndex = Array.IndexOf(words, "by");
 
-			if (byIndex <= 1 || toIndex <= byIndex + 1 || toIndex >= words.Length) return;
+			if (toIndex <= 1 || toIndex >= words.Length) return;
 
-			string songName = string.Join(" ", words[1..byIndex]);
-			string artistName = string.Join(" ", words[(byIndex + 1)..toIndex]);
+			string songName;
+			string artistName = "";
+
+			// Only split on "by" if it actually appears before "to"
+			if (byIndex > 1 && byIndex < toIndex)
+			{
+				songName = string.Join(" ", words[1..byIndex]);
+				artistName = string.Join(" ", words[(byIndex + 1)..toIndex]);
+			}
+			else
+			{
+				songName = string.Join(" ", words[1..toIndex]);
+			}
 
 			if (artistName == "geo") artistName = "gio.";
 			if (artistName == "halsey") artistName = "hulvey";
 
-			NowPlayingLabel.Text = $"Searching {songName} - {artistName}";
+			NowPlayingLabel.Text = artistName == ""
+					? $"Searching {songName}"
+					: $"Searching {songName} - {artistName}";
 
 			queueSong(songName, artistName);
 		}
@@ -1031,7 +1140,7 @@ public partial class MainPage : ContentPage
 		_progressTimer.Start();
 	}
 
-	void TickProgressBar()
+	async void TickProgressBar()
 	{
 		if (!isPlaying || _currentDurationMs <= 0)
 			return;
@@ -1042,6 +1151,11 @@ public partial class MainPage : ContentPage
 
 		SongProgressBar.Progress = fraction;
 		ElapsedLabel.Text = FormatTime(Math.Min(estimatedProgress, _currentDurationMs));
+		if (DurationLabel.Text == ElapsedLabel.Text)
+		{
+			await Task.Delay(500);
+			await RefreshPlaybackStateAsync();
+		}
 	}
 
 	void AnimateBars()
