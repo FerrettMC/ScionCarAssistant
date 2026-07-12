@@ -4,6 +4,8 @@ Voice-controlled Spotify remote for your car. Built with .NET MAUI for Android.
 
 Basically I got tired of fiddling with my phone while driving so I made this. Tap the big green button, say what you want, and it does the thing.
 
+> **Heads up** — this is built around my exact setup and my Spotify account quirks. It's not really designed as a plug-and-play solution. If you want to use it, expect to poke around in the code and tweak things to fit your own car and preferences.
+
 ![C#](https://img.shields.io/badge/C%23-239120?logo=c-sharp&logoColor=white)
 ![.NET MAUI](https://img.shields.io/badge/.NET%20MAUI-512BD4?logo=dotnet&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)
