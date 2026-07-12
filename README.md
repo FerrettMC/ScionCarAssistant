@@ -4,12 +4,12 @@ Voice-controlled Spotify remote for your car. Built with .NET MAUI for Android.
 
 Basically I got tired of fiddling with my phone while driving so I made this. Tap the big green button, say what you want, and it does the thing.
 
-> **Heads up** — this is built around my exact setup and my Spotify account quirks. It's not really designed as a plug-and-play solution. If you want to use it, expect to poke around in the code and tweak things to fit your own car and preferences.
-
 ![C#](https://img.shields.io/badge/C%23-239120?logo=c-sharp&logoColor=white)
 ![.NET MAUI](https://img.shields.io/badge/.NET%20MAUI-512BD4?logo=dotnet&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)
 ![Spotify](https://img.shields.io/badge/Spotify-1DB954?logo=spotify&logoColor=white)
+
+> **Heads up** — this is built around my exact setup and my Spotify account quirks. It's not really designed as a plug-and-play solution. If you want to use it, expect to poke around in the code and tweak things to fit your own car and preferences.
 
 ## What it does
 
@@ -44,7 +44,7 @@ Basically I got tired of fiddling with my phone while driving so I made this. Ta
 
 ### Prerequisites
 
-- .NET 8 SDK
+- .NET 10 SDK
 - Android device or emulator
 - A Spotify Developer account
 
@@ -59,8 +59,7 @@ Basically I got tired of fiddling with my phone while driving so I made this. Ta
 ```bash
 git clone https://github.com/yourusername/ScionCarAssistant.git
 cd ScionCarAssistant
-dotnet build -t:Run -f net8.0-android
-```
+dotnet build -t:Run -f net10.0-android
 
 First launch will open a Spotify login page. Authorize and you're good to go.
 
@@ -76,17 +75,19 @@ Yeah it's mostly in one file. It's a car remote, not an operating system. Might 
 
 ## How it works
 
-- **Speech to text** uses the `CommunityToolkit.Maui.Media` speech-to-text package
-- **Spotify API** handles everything through their Web API with bearer token auth
-- **Tokens** are stored in `SecureStorage` and auto-refresh when expired
-- **Polling** checks playback state every 4 seconds so the UI stays current
-- **Visualizer** bars animate randomly when something is playing, flat when paused
+    Speech to text uses the CommunityToolkit.Maui.Media speech-to-text package
+    Spotify API handles everything through their Web API with bearer token auth
+    Tokens are stored in SecureStorage and auto-refresh when expired
+    Polling checks playback state every 4 seconds so the UI stays current
+    Visualizer bars animate randomly when something is playing, flat when paused
+
 
 ## Notes
 
-- Built for Android only. iOS might work with MAUI in theory but I haven't touched it and probably won't.
-- The voice recognition is decent but not perfect. Mishears like "geo" → "gio." and "halsey" → "hulvey" have manual corrections baked in because those are songs I play a lot. You'll probably want to add your own.
-- Volume control uses Android's system audio, not Spotify's in-app volume.
+    Built for Android only. iOS might work with MAUI in theory but I haven't touched it and probably won't.
+    The voice recognition is decent but not perfect. Mishears like "geo" → "gio." and "halsey" → "hulvey" have manual corrections baked in because those are songs I play a lot. You'll probably want to add your own.
+    Volume control uses Android's system audio, not Spotify's in-app volume.
+
 
 ## License
 
