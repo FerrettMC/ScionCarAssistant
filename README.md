@@ -56,10 +56,11 @@ Basically I got tired of fiddling with my phone while driving so I made this. Ta
 
 ### Build & run
 
-bash
+```bash
 git clone https://github.com/yourusername/ScionCarAssistant.git
 cd ScionCarAssistant
 dotnet build -t:Run -f net10.0-android
+```
 
 First launch will open a Spotify login page. Authorize and you're good to go.
 
@@ -75,19 +76,17 @@ Yeah it's mostly in one file. It's a car remote, not an operating system. Might 
 
 ## How it works
 
-    Speech to text uses the CommunityToolkit.Maui.Media speech-to-text package
-    Spotify API handles everything through their Web API with bearer token auth
-    Tokens are stored in SecureStorage and auto-refresh when expired
-    Polling checks playback state every 4 seconds so the UI stays current
-    Visualizer bars animate randomly when something is playing, flat when paused
-
+- **Speech to text** uses the `CommunityToolkit.Maui.Media` speech-to-text package
+- **Spotify API** handles everything through their Web API with bearer token auth
+- **Tokens** are stored in `SecureStorage` and auto-refresh when expired
+- **Polling** checks playback state every 4 seconds so the UI stays current
+- **Visualizer** bars animate randomly when something is playing, flat when paused
 
 ## Notes
 
-    Built for Android only. iOS might work with MAUI in theory but I haven't touched it and probably won't.
-    The voice recognition is decent but not perfect. Mishears like "geo" → "gio." and "halsey" → "hulvey" have manual corrections baked in because those are songs I play a lot. You'll probably want to add your own.
-    Volume control uses Android's system audio, not Spotify's in-app volume.
-
+- Built for Android only. iOS might work with MAUI in theory but I haven't touched it and probably won't.
+- The voice recognition is decent but not perfect. Mishears like "geo" → "gio." and "halsey" → "hulvey" have manual corrections baked in because those are songs I play a lot. You'll probably want to add your own.
+- Volume control uses Android's system audio, not Spotify's in-app volume.
 
 ## License
 
