@@ -94,7 +94,7 @@
             Clicked="OnSkipClicked" />
 
     <!-- Vol Down, Vol Up - squished -->
-    <Button Grid.Row="6" Grid.Column="0"
+    <Button Grid.Row="6" Grid.Column="0" 
         Text="🔉 VOL −"
             FontSize="16"
             BackgroundColor="#333"

@@ -12,6 +12,8 @@ public partial class MainPage : ContentPage
 	bool isPlaying = false;
 	bool isListening = false;
 
+	static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
+
 	IDispatcherTimer? _progressTimer;
 	double _currentProgressMs = 0;
 	double _currentDurationMs = 0;
@@ -35,7 +37,7 @@ public partial class MainPage : ContentPage
 	List<(string name, string uri)> _playlists = new();
 
 	private List<string> _numbers = [
-		"one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+		"one", "two", "to", "three", "four", "for",  "five", "six", "seven", "eight", "nine", "ten",
 		"eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
 		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20"
@@ -606,9 +608,9 @@ public partial class MainPage : ContentPage
 		return str switch
 		{
 			"1" or "one" => 1,
-			"2" or "two" => 2,
+			"2" or "two" or "to" => 2,
 			"3" or "three" => 3,
-			"4" or "four" => 4,
+			"4" or "four" or "for" => 4,
 			"5" or "five" => 5,
 			"6" or "six" => 6,
 			"7" or "seven" => 7,
@@ -631,11 +633,10 @@ public partial class MainPage : ContentPage
 
 	async Task<HttpResponseMessage> SendSpotifyRequestAsync(Func<HttpClient, Task<HttpResponseMessage>> request)
 	{
-		using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
-		http.DefaultRequestHeaders.Authorization =
+		_http.DefaultRequestHeaders.Authorization =
 						new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 
-		var response = await request(http);
+		var response = await request(_http);
 
 		if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
 		{
@@ -1056,9 +1057,11 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	SemaphoreSlim _refreshLock = new(1, 1);
 	async Task RefreshPlaybackStateAsync()
 	{
 		if (_accessToken == null) return;
+		if (!await _refreshLock.WaitAsync(0)) return; // skip if already refreshing
 
 		try
 		{
@@ -1124,6 +1127,7 @@ public partial class MainPage : ContentPage
 			System.Diagnostics.Debug.WriteLine($"[Refresh] FAILED: {ex}");
 			SetNowPlaying($"Refresh error: {ex.Message}");
 		}
+		finally { _refreshLock.Release(); }
 	}
 	void InitVisualizer()
 	{
@@ -1153,8 +1157,15 @@ public partial class MainPage : ContentPage
 		ElapsedLabel.Text = FormatTime(Math.Min(estimatedProgress, _currentDurationMs));
 		if (DurationLabel.Text == ElapsedLabel.Text)
 		{
-			await Task.Delay(500);
-			await RefreshPlaybackStateAsync();
+			try
+			{
+				await Task.Delay(500);
+				await RefreshPlaybackStateAsync();
+			}
+			catch (Exception)
+			{
+				return;
+			}
 		}
 	}
 
