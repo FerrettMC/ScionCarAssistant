@@ -1,138 +1,222 @@
 ﻿<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
              xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
              x:Class="ScionCarAssistant.MainPage"
-             >
+             BackgroundColor="#08080F">
 
-<Grid RowDefinitions="Auto,Auto,Auto,4.5*,Auto,1.1*,1.1*" ColumnDefinitions="*,*" RowSpacing="10" ColumnSpacing="10" Padding="10">
+    <Grid RowDefinitions="Auto,Auto,*,Auto,Auto"
+          Padding="14,10"
+          RowSpacing="8">
 
-    <HorizontalStackLayout Grid.Row="0" Grid.ColumnSpan="2"
-                   HeightRequest="40"
-                   Spacing="6"
-                   HorizontalOptions="Center"
-                   VerticalOptions="Center">
-    <BoxView x:Name="Bar1" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#FF3B30" />
-    <BoxView x:Name="Bar2" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#FF9500" />
-    <BoxView x:Name="Bar3" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#FFCC00" />
-    <BoxView x:Name="Bar4" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#34C759" />
-    <BoxView x:Name="Bar5" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#00C7BE" />
-    <BoxView x:Name="Bar6" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#30ADE6" />
-    <BoxView x:Name="Bar7" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#5856D6" />
-    <BoxView x:Name="Bar8" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#AF52DE" />
-    <BoxView x:Name="Bar9" WidthRequest="20" HeightRequest="6" VerticalOptions="End" Color="#FF2D78" />
-</HorizontalStackLayout>
-    <!-- Now Playing label - bigger -->
-    <Label x:Name="NowPlayingLabel"
-           Grid.Row="1" Grid.ColumnSpan="2"
-           Text="Nothing playing"
-           FontSize="34"
-           TextColor="White"
-           HorizontalTextAlignment="Center"
-           LineBreakMode="WordWrap"
-           MaxLines="2" />
+        <!-- ══════════════ VISUALIZER ══════════════ -->
+        <Border Grid.Row="0"
+                BackgroundColor="#12121F"
+                StrokeShape="RoundRectangle 12"
+                Stroke="#12121F"
+                Padding="12,8"
+                HeightRequest="52">
+            <HorizontalStackLayout HorizontalOptions="Center" Spacing="5">
+                <BoxView x:Name="Bar1"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#FF3B30"  CornerRadius="0" />
+                <BoxView x:Name="Bar2"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#FF9500"  CornerRadius="0" />
+                <BoxView x:Name="Bar3"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#FFCC00"  CornerRadius="0" />
+                <BoxView x:Name="Bar4"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#34C759"  CornerRadius="0" />
+                <BoxView x:Name="Bar5"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#00C7BE"  CornerRadius="0" />
+                <BoxView x:Name="Bar6"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#30ADE6"  CornerRadius="0" />
+                <BoxView x:Name="Bar7"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#5856D6"  CornerRadius="0" />
+                <BoxView x:Name="Bar8"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#AF52DE"  CornerRadius="0" />
+                <BoxView x:Name="Bar9"  WidthRequest="18" HeightRequest="6" VerticalOptions="End" Color="#FF2D78"  CornerRadius="0" />
+            </HorizontalStackLayout>
+        </Border>
 
-        <Grid Grid.Row="2" Grid.ColumnSpan="2"
-      ColumnDefinitions="1.5*,5*,1.5*"
-      ColumnSpacing="8"
-      VerticalOptions="Center">
+        <!-- ══════════════ NOW PLAYING + PROGRESS ══════════════ -->
+        <Border Grid.Row="0"
+                Grid.RowSpan="2"
+                BackgroundColor="#12121F"
+                StrokeShape="RoundRectangle 16"
+                Stroke="#12121F"
+                Padding="18,14">
+            <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
 
-    <Label x:Name="ElapsedLabel"
-           Grid.Column="0"
-           Text="0:00"
-           FontSize="14"
-           TextColor="White"
-           HorizontalTextAlignment="End"
-           VerticalTextAlignment="Center" />
+                <!-- Status row: pulsing dot + "NOW PLAYING" -->
+                <HorizontalStackLayout Grid.Row="0" 
+                                    HorizontalOptions="Center"
+                                    Spacing="6"
+                                    VerticalOptions="Center">
+                    <Border x:Name="PulsingDot"
+                            WidthRequest="10" HeightRequest="10"
+                            BackgroundColor="#1DB954"
+                            StrokeShape="RoundRectangle 5"
+                            Stroke="Transparent"
+                            VerticalOptions="Center" />
+                    <Label Text="NOW PLAYING" x:Name="isPlayingText"
+                        FontSize="11"
+                        FontAttributes="Bold"
+                        TextColor="#7B7B95"
+                        CharacterSpacing="1.5"
+                        VerticalTextAlignment="Center" />
+                </HorizontalStackLayout>
 
-    <ProgressBar x:Name="SongProgressBar"
-                 Grid.Column="1"
-                 Progress="0"
-                 HeightRequest="6"
-                 VerticalOptions="Center" />
+                <!-- Song name — now bigger -->
+                <Label x:Name="NowPlayingLabel"
+                    Grid.Row="1"
+                    Text="Nothing playing"
+                    FontSize="40"
+                    FontAttributes="Bold"
+                    TextColor="White"
+                    HorizontalTextAlignment="Center"
+                    LineBreakMode="WordWrap"
+                    MaxLines="3" />
 
-    <Label x:Name="DurationLabel"
-           Grid.Column="2"
-           Text="0:00"
-           FontSize="14"
-           TextColor="White"
-           HorizontalTextAlignment="Start"
-           VerticalTextAlignment="Center" />
-</Grid>
+                <!-- Progress bar -->
+                <Grid Grid.Row="2"
+                    ColumnDefinitions="Auto,*,Auto"
+                    ColumnSpacing="10"
+                    VerticalOptions="Center">
 
-    <!-- Push to talk - even more dominant -->
-    <Button x:Name="VoiceBtn"
-        Grid.Row="3" Grid.ColumnSpan="2"
-            Text="PRESS TO TALK"
-            FontSize="46"
-            BackgroundColor="DarkGreen"
-            TextColor="White"
-            Clicked="OnVoiceClicked" />
+                    <Label x:Name="ElapsedLabel"
+                        Grid.Column="0"
+                        Text="0:00"
+                        FontSize="12"
+                        TextColor="#7B7B95"
+                        VerticalTextAlignment="Center" />
 
-    <!-- Reload - short -->
-    <Button x:Name="ReloadBtn"
-        Grid.Row="4" Grid.ColumnSpan="2"
-            Text="RELOAD"
-            FontSize="20"
-            HeightRequest="40"
-            BackgroundColor="#FF355A50"
-            TextColor="White"
-            Clicked="Reload" />
+                    <ProgressBar x:Name="SongProgressBar"
+                                Grid.Column="1"
+                                Progress="0"
+                                ProgressColor="#1DB954"
+                                BackgroundColor="#2A2A45"
+                                HeightRequest="4"
+                                VerticalOptions="Center" />
 
-    <!-- Play/Pause, Skip -->
-  <Button x:Name="PlayPauseBtn"
-        Grid.Row="5" Grid.Column="0"
-            Text="▶ PLAY"
-            FontSize="24"
-            BackgroundColor="DarkGreen"
-            TextColor="White"
-            Clicked="OnPlayPauseClicked" />
+                    <Label x:Name="DurationLabel"
+                        Grid.Column="2"
+                        Text="0:00"
+                        FontSize="12"
+                        TextColor="#7B7B95"
+                        VerticalTextAlignment="Center" />
+                </Grid>
+            </Grid>
+        </Border>
 
-    <Button Grid.Row="5" Grid.Column="1"
-        Text="⏭ SKIP"
-            FontSize="24"
-            BackgroundColor="DarkSlateBlue"
-            TextColor="White"
-            Clicked="OnSkipClicked" />
+        <!-- ══════════════ VOICE BUTTON ══════════════ -->
+        <Button x:Name="VoiceBtn"
+                Grid.Row="2"
+                Text="PRESS TO TALK"
+                FontSize="44"
+                FontAttributes="Bold"
+                BackgroundColor="DarkGreen"
+                TextColor="White"
+                CornerRadius="20"
+                Margin="0,8,0,4"
+                Clicked="OnVoiceClicked">
+            <Button.Shadow>
+                <Shadow Brush="#401DB954" Offset="0,4" Radius="16" />
+            </Button.Shadow>
+        </Button>
 
-    <!-- Vol Down, Vol Up - squished -->
-    <Button Grid.Row="6" Grid.Column="0" 
-        Text="🔉 VOL −"
-            FontSize="16"
-            BackgroundColor="#333"
-            TextColor="White"
-            Clicked="OnVolumeDownClicked" />
+        <!-- ══════════════ TRANSPORT ══════════════ -->
+        <Grid Grid.Row="3"
+              ColumnDefinitions="*,10,*,10,*"
+              Margin="0,2,0,0">
 
-    <Button Grid.Row="6" Grid.Column="1"
-        Text="🔊 VOL +"
-            FontSize="16"
-            BackgroundColor="#333"
-            TextColor="White"
-            Clicked="OnVolumeUpClicked" />
+            <Button x:Name="PlayPauseBtn"
+                    Grid.Column="0"
+                    Text="▶ PLAY"
+                    FontSize="20"
+                    FontAttributes="Bold"
+                    BackgroundColor="#1C1C32"
+                    TextColor="White"
+                    CornerRadius="16"
+                    HeightRequest="64"
+                    Clicked="OnPlayPauseClicked" />
 
+            <Button x:Name="ReloadBtn"
+                    Grid.Column="2"
+                    Text="↻ RELOAD"
+                    FontSize="18"
+                    FontAttributes="Bold"
+                    BackgroundColor="#1C1C32"
+                    TextColor="#7B7B95"
+                    CornerRadius="16"
+                    HeightRequest="64"
+                    Clicked="Reload" />
+
+            <Button Grid.Column="4"
+                    Text="SKIP ⏭"
+                    FontSize="20"
+                    FontAttributes="Bold"
+                    BackgroundColor="#1C1C32"
+                    TextColor="White"
+                    CornerRadius="16"
+                    HeightRequest="64"
+                    Clicked="OnSkipClicked" />
+        </Grid>
+
+        <!-- ══════════════ VOLUME ══════════════ -->
+        <Grid Grid.Row="4"
+              ColumnDefinitions="*,10,*"
+              Margin="0,2,0,0">
+
+            <Button Grid.Column="0"
+                    Text="VOL −"
+                    FontSize="16"
+                    FontAttributes="Bold"
+                    BackgroundColor="#14141F"
+                    TextColor="#55556B"
+                    CornerRadius="12"
+                    HeightRequest="46"
+                    Clicked="OnVolumeDownClicked" />
+
+            <Button Grid.Column="2"
+                    Text="VOL +"
+                    FontSize="16"
+                    FontAttributes="Bold"
+                    BackgroundColor="#14141F"
+                    TextColor="#55556B"
+                    CornerRadius="12"
+                    HeightRequest="46"
+                    Clicked="OnVolumeUpClicked" />
+        </Grid>
+
+        <!-- ══════════════ POPUP OVERLAY ══════════════ -->
         <Grid x:Name="PlaylistPopup"
-      Grid.Row="0" Grid.RowSpan="7" Grid.Column="0" Grid.ColumnSpan="2"
-          BackgroundColor="#DD000000"
-          IsVisible="False">
-          <Grid.GestureRecognizers>
+              Grid.Row="0" Grid.RowSpan="5"
+              BackgroundColor="#DD08080F"
+              IsVisible="False">
+            <Grid.GestureRecognizers>
                 <TapGestureRecognizer Tapped="OnPlaylistPopupTapped" />
-        </Grid.GestureRecognizers>
-        <VerticalStackLayout x:Name="PlaylistStack"
-                              VerticalOptions="Center"
-                              Padding="20"
-                              Spacing="12" />
-    </Grid>
+            </Grid.GestureRecognizers>
+            <Border BackgroundColor="#16162A"
+                    StrokeShape="RoundRectangle 20"
+                    Stroke="#2A2A45"
+                    Padding="24,20"
+                    Margin="24"
+                    VerticalOptions="Center"
+                    HorizontalOptions="Center">
+                <VerticalStackLayout x:Name="PlaylistStack"
+                                     Spacing="10" />
+            </Border>
+        </Grid>
+
+        <!-- ══════════════ QUICK OPEN SPOTIFY ══════════════ -->
         <Button x:Name="QuickOpenSpotifyBtn"
-        Grid.Row="0" Grid.RowSpan="7" Grid.Column="0" Grid.ColumnSpan="2"
+                Grid.Row="0" Grid.RowSpan="5"
                 Text="OPEN SPOTIFY"
-                FontSize="18"
-                HeightRequest="45"
-                WidthRequest="200"
+                FontSize="16"
+                FontAttributes="Bold"
+                HeightRequest="46"
+                WidthRequest="210"
                 VerticalOptions="End"
                 HorizontalOptions="Center"
-                Margin="0,0,0,20"
+                Margin="0,0,0,28"
                 BackgroundColor="#1DB954"
                 TextColor="White"
+                CornerRadius="23"
                 Clicked="OnQuickOpenSpotifyClicked"
-                IsVisible="True" />
+                IsVisible="True">
+            <Button.Shadow>
+                <Shadow Brush="#401DB954" Offset="0,2" Radius="10" />
+            </Button.Shadow>
+        </Button>
 
-</Grid>
+    </Grid>
 </ContentPage>

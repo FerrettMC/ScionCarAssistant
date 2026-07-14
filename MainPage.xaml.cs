@@ -2,6 +2,12 @@
 using System.Globalization;
 using Android.Media;
 using Android.Content;
+using Microsoft.Maui.Dispatching;
+using Microsoft.Maui.Controls;
+using Microsoft.Maui;
+using Microsoft.Maui.Storage;
+using Microsoft.Maui.ApplicationModel;
+using Microsoft.Maui.Graphics;
 
 
 namespace ScionCarAssistant;
@@ -9,7 +15,7 @@ namespace ScionCarAssistant;
 public partial class MainPage : ContentPage
 {
 
-	bool isPlaying = false;
+	volatile bool isPlaying = false;
 	bool isListening = false;
 
 	static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
@@ -102,7 +108,7 @@ public partial class MainPage : ContentPage
 {
 	while (!token.IsCancellationRequested)
 	{
-		await Task.Delay(4000, token).ContinueWith(_ => { });
+		await Task.Delay(2000, token).ContinueWith(_ => { });
 		if (token.IsCancellationRequested) break;
 		if (!isListening && !_suppressPoll)
 		{
@@ -754,6 +760,8 @@ public partial class MainPage : ContentPage
 
 
 
+
+
 	void ResetVoiceButton()
 	{
 		isListening = false;
@@ -1068,10 +1076,13 @@ public partial class MainPage : ContentPage
 			var response = await SendSpotifyRequestAsync(http =>
 											http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
 
+
+
 			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
 			{
 				SetNowPlaying("Nothing playing");
 				isPlaying = false;
+				UpdatePulsingDot();
 				SetPlayPauseText("▶ PLAY");
 				_currentDurationMs = 0;
 				MainThread.BeginInvokeOnMainThread(() =>
@@ -1095,6 +1106,7 @@ public partial class MainPage : ContentPage
 
 			isPlaying = root.TryGetProperty("is_playing", out var playingProp) && playingProp.GetBoolean();
 			SetPlayPauseText(isPlaying ? "PAUSE" : "▶ PLAY");
+			UpdatePulsingDot();
 
 			if (!root.TryGetProperty("item", out var track) || track.ValueKind != System.Text.Json.JsonValueKind.Object)
 			{
@@ -1131,11 +1143,9 @@ public partial class MainPage : ContentPage
 	}
 	void InitVisualizer()
 	{
-		_bars = new List<BoxView> { Bar1, Bar2, Bar3, Bar4, Bar5, Bar6, Bar7, Bar8, Bar9 };
-
 		_visualizerTimer = Dispatcher.CreateTimer();
-		_visualizerTimer.Interval = TimeSpan.FromMilliseconds(280);
-		_visualizerTimer.Tick += (s, e) => AnimateBars();
+		_visualizerTimer.Interval = TimeSpan.FromMilliseconds(500);
+		_visualizerTimer.Tick += (s, e) => UpdatePulsingDot();
 		_visualizerTimer.Start();
 
 		_progressTimer = Dispatcher.CreateTimer();
@@ -1144,9 +1154,28 @@ public partial class MainPage : ContentPage
 		_progressTimer.Start();
 	}
 
+	private bool _dotVisible = true;
+
+	private void UpdatePulsingDot()
+	{
+		_dotVisible = !_dotVisible;
+		MainThread.BeginInvokeOnMainThread(() =>
+		{
+			if (!isPlaying)
+			{
+				isPlayingText.Text = "--------------";
+				PulsingDot.IsVisible = false;
+			}
+			else
+			{
+				isPlayingText.Text = "NOW PLAYING";
+				PulsingDot.IsVisible = true;
+			}
+		});
+	}
 	async void TickProgressBar()
 	{
-		if (!isPlaying || _currentDurationMs <= 0)
+		if (!isPlaying || _currentDurationMs <= 0 || isListening)
 			return;
 
 		var elapsed = (DateTime.UtcNow - _lastProgressUpdate).TotalMilliseconds;
