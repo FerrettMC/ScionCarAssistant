@@ -281,12 +281,11 @@ public partial class MainPage : ContentPage
 		{
 			PlaylistStack.Children.Clear();
 			var response = await SendSpotifyRequestAsync(http =>
-											http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
+					http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
 
 			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
-			{
 				return;
-			}
+
 			if (!response.IsSuccessStatusCode)
 			{
 				System.Diagnostics.Debug.WriteLine($"[Refresh] Non-success: {(int)response.StatusCode}");
@@ -302,33 +301,112 @@ public partial class MainPage : ContentPage
 			if (!isPlaying) return;
 
 			if (!root.TryGetProperty("item", out var track) || track.ValueKind != System.Text.Json.JsonValueKind.Object)
-			{
 				return;
-			}
-
 
 			var title = track.GetProperty("name").GetString();
 			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-											? artists[0].GetProperty("name").GetString()
-											: "Unknown artist";
+					? artists[0].GetProperty("name").GetString()
+					: "Unknown artist";
 
-			string? playlistName = null;
-			if (root.TryGetProperty("context", out var context) &&
-					context.ValueKind == System.Text.Json.JsonValueKind.Object &&
-					context.TryGetProperty("type", out var ctxType) &&
-					ctxType.GetString() == "playlist" &&
-					context.TryGetProperty("uri", out var ctxUri))
+			// --- album art ---
+			string? imageUrl = null;
+			if (track.TryGetProperty("album", out var album) &&
+					album.ValueKind == System.Text.Json.JsonValueKind.Object &&
+					album.TryGetProperty("images", out var images) &&
+					images.GetArrayLength() > 0)
 			{
-				var uri = ctxUri.GetString();
-				playlistName = _playlists.FirstOrDefault(p => p.uri == uri).name;
+				var imgIndex = images.GetArrayLength() > 1 ? 1 : 0;
+				if (images[imgIndex].TryGetProperty("url", out var urlProp))
+					imageUrl = urlProp.GetString();
 			}
-			string info = $"{title}\n\nby {artist}\n\n-{playlistName}-";
+
+			// --- album name ---
+			string? albumName = null;
+			if (track.TryGetProperty("album", out var albumObj) &&
+					albumObj.ValueKind == System.Text.Json.JsonValueKind.Object &&
+					albumObj.TryGetProperty("name", out var albumNameProp))
+			{
+				albumName = albumNameProp.GetString();
+			}
+
+			// --- release date ---
+			string? releaseDate = null;
+			if (track.TryGetProperty("album", out var albumForDate) &&
+					albumForDate.ValueKind == System.Text.Json.JsonValueKind.Object &&
+					albumForDate.TryGetProperty("release_date", out var rdProp))
+			{
+				var raw = rdProp.GetString();
+				if (DateTime.TryParse(raw, out var parsed))
+					releaseDate = parsed.ToString("MMMM d, yyyy");
+				else
+					releaseDate = raw;
+			}
+
+			// --- popularity (0-100) ---
+			int? popularity = null;
+			if (track.TryGetProperty("popularity", out var popProp))
+				popularity = popProp.GetInt32();
+
+			// --- duration ---
+			string? duration = null;
+			if (track.TryGetProperty("duration_ms", out var durProp))
+			{
+				var ts = TimeSpan.FromMilliseconds(durProp.GetInt32());
+				duration = ts.TotalHours >= 1
+						? ts.ToString(@"h\:mm\:ss")
+						: ts.ToString(@"m\:ss");
+			}
+
+			// --- explicit flag ---
+			bool isExplicit = track.TryGetProperty("explicit", out var explProp) && explProp.GetBoolean();
+
+			// --- add album art image ---
+			if (imageUrl != null)
+			{
+				var albumImage = new Microsoft.Maui.Controls.Image
+				{
+					Source = new UriImageSource
+					{
+						Uri = new Uri(imageUrl),
+						CachingEnabled = true,
+						CacheValidity = TimeSpan.FromHours(1)
+					},
+					WidthRequest = 100,
+					HeightRequest = 100,
+					Aspect = Aspect.AspectFill,
+					HorizontalOptions = LayoutOptions.Center
+				};
+				PlaylistStack.Children.Add(albumImage);
+			}
+
+			// --- build the display string ---
+			var sb = new System.Text.StringBuilder();
+			sb.AppendLine(title);
+			sb.AppendLine();
+			sb.AppendLine($"by {artist}\n");
+
+			if (albumName != null)
+				sb.AppendLine($"from {albumName}\n");
+
+			if (releaseDate != null)
+				sb.AppendLine($"Released \"{releaseDate}\"\n");
+
+			if (popularity.HasValue)
+				sb.AppendLine($"Popularity {popularity}/100\n");
+
+			if (duration != null)
+				sb.AppendLine($"Duration {duration}\n");
+
+			if (isExplicit)
+				sb.AppendLine("Explicit\n");
+
 			var label = new Label
 			{
-				Text = info,
+				Text = sb.ToString(),
 				FontSize = 35,
 				TextColor = Colors.White,
-				HorizontalTextAlignment = TextAlignment.Center
+				HorizontalTextAlignment = TextAlignment.Center,
+				Margin = new Thickness(0, 15, 0, 0)
 			};
 
 			PlaylistStack.Children.Add(label);
@@ -339,7 +417,6 @@ public partial class MainPage : ContentPage
 			{
 				PlaylistPopup.IsVisible = false;
 			}
-
 		}
 		catch (Exception ex)
 		{
@@ -436,6 +513,7 @@ public partial class MainPage : ContentPage
 
 	}
 
+	[Obsolete] // Use queueSong(x, x, true) so that it plays the song while keeping the next up
 	async void playSong(string song, string artist)
 	{
 		if (_accessToken == null) return;
@@ -794,7 +872,7 @@ public partial class MainPage : ContentPage
 		{
 			QueueRandomSongFromAllPlaylistsAsync();
 		}
-		else if ((heard.Contains("show") && hasQueueWord) || heard.Equals("so cute"))
+		else if ((heard.Contains("show") && hasQueueWord) || heard.Equals("so cute") || (hasQueueWord && (heard.Length == 1 || heard.Length == 3 || heard.Length == 4 || heard.Length == 5)))
 		{
 			ShowUpcomingQueue();
 		}
@@ -840,7 +918,7 @@ public partial class MainPage : ContentPage
 					? $"Searching {songName}"
 					: $"Searching {songName} - {artistName}";
 
-			playSong(songName, artistName);
+			queueSong(songName, artistName, true);
 		}
 
 
@@ -875,6 +953,10 @@ public partial class MainPage : ContentPage
 					: $"Searching {songName} - {artistName}";
 
 			queueSong(songName, artistName);
+		}
+		else if (heard.Contains("playlist") && (heard.Length == 8 || heard.Length == 9))
+		{
+			ShowPlaylistsPopup();
 		}
 		else if (heard.Contains("playlist"))
 		{
@@ -1066,7 +1148,7 @@ public partial class MainPage : ContentPage
 	}
 
 	SemaphoreSlim _refreshLock = new(1, 1);
-	async Task RefreshPlaybackStateAsync()
+	async Task RefreshPlaybackStateAsync() // the magic
 	{
 		if (_accessToken == null) return;
 		if (!await _refreshLock.WaitAsync(0)) return; // skip if already refreshing
