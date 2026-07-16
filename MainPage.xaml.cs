@@ -876,6 +876,37 @@ public partial class MainPage : ContentPage
 		{
 			ShowUpcomingQueue();
 		}
+
+		else if (new[] { "queue", "q", "cute", "cue" }.Contains(words[0]))
+		{
+			int byIndex = Array.IndexOf(words, "by");
+
+			string songName;
+			string artistName = "";
+
+			// If "by" appears after the first word, split song and artist
+			if (byIndex > 1 && byIndex < words.Length)
+			{
+				songName = string.Join(" ", words[1..byIndex]);
+				artistName = string.Join(" ", words[(byIndex + 1)..]);
+			}
+			else
+			{
+				songName = string.Join(" ", words[1..]);
+			}
+
+			// Handle special cases
+			if (artistName == "geo") artistName = "gio.";
+			if (artistName == "halsey") artistName = "hulvey";
+
+			NowPlayingLabel.Text = artistName == ""
+					? $"Searching {songName}"
+					: $"Searching {songName} - {artistName}";
+
+			queueSong(songName, artistName);
+		}
+
+
 		else if (heard.Contains("command"))
 		{
 			ShowCommandsPopup();
