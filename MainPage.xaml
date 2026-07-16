@@ -153,8 +153,8 @@
 
         <!-- ══════════════ VOLUME ══════════════ -->
         <Grid Grid.Row="4"
-              ColumnDefinitions="*,10,*"
-              Margin="0,2,0,0">
+            ColumnDefinitions="*,10,*,10,*"
+            Margin="0,2,0,0">
 
             <Button Grid.Column="0"
                     Text="VOL −"
@@ -166,7 +166,18 @@
                     HeightRequest="46"
                     Clicked="OnVolumeDownClicked" />
 
-            <Button Grid.Column="2"
+            <Button x:Name="CommandsBtn"
+                    Grid.Column="2"
+                    Text="CMDS"
+                    FontSize="18"
+                    FontAttributes="Bold"
+                    BackgroundColor="#1C1C32"
+                    TextColor="#7B7B95"
+                    CornerRadius="16"
+                    HeightRequest="46"
+                    Clicked="OnCommandsClicked" />
+
+            <Button Grid.Column="4"
                     Text="VOL +"
                     FontSize="16"
                     FontAttributes="Bold"

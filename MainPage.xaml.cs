@@ -1065,6 +1065,13 @@ public partial class MainPage : ContentPage
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Lower, VolumeNotificationFlags.ShowUi);
 	}
 
+	private async void OnCommandsClicked(object? sender, EventArgs e)
+	{
+		ShowCommandsPopup();
+		await RefreshPlaybackStateAsync();
+
+	}
+
 	private async void Reload(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
