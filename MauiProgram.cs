@@ -18,8 +18,8 @@ public static class MauiProgram
 					events.AddAndroid(android => android
 									.OnResume(activity =>
 									{
-									MainPage.NotifyAppResumed();
-								}));
+										MainPage.NotifyAppResumed();
+									}));
 #endif
 				});
 

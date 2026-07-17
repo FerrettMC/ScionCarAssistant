@@ -2,6 +2,7 @@
 using System.Globalization;
 using Android.Media;
 using Android.Content;
+using Android.Util;
 using Microsoft.Maui.Dispatching;
 using Microsoft.Maui.Controls;
 using Microsoft.Maui;
@@ -14,10 +15,9 @@ namespace ScionCarAssistant;
 
 public partial class MainPage : ContentPage
 {
-
 	volatile bool isPlaying = false;
 	bool isListening = false;
-
+	private bool _compactMode = false;
 	static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(8) };
 
 	IDispatcherTimer? _progressTimer;
@@ -38,7 +38,7 @@ public partial class MainPage : ContentPage
 	bool _suppressPoll = false;
 	IDispatcherTimer? _visualizerTimer;
 	List<BoxView> _bars = new();
-	Random _rand = new();
+	System.Random _rand = new();
 
 	List<(string name, string uri)> _playlists = new();
 
@@ -47,18 +47,78 @@ public partial class MainPage : ContentPage
 		"eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty",
 		"1", "2", "3", "4", "5", "6", "7", "8", "9", "10",
 		"11", "12", "13", "14", "15", "16", "17", "18", "19", "20"
-];
+	];
+
+	const string TAG = "Scion";
 
 	public MainPage(ISpeechToText speechToText)
 	{
 		InitializeComponent();
+
 		_speechToText = speechToText;
 		AppResumed -= OnAppResumed;
 		AppResumed += OnAppResumed;
 		InitVisualizer();
-
 	}
 
+
+
+	void OnTalkReleased(object? sender, EventArgs e)
+	{
+		if (isListening)
+		{
+			_speechCts?.Cancel();
+			_speechToText.StopListenAsync(CancellationToken.None).ContinueWith(_ =>
+				MainThread.BeginInvokeOnMainThread(ResetVoiceButton));
+		}
+	}
+
+
+	public void SetCompactMode()
+	{
+		_compactMode = !_compactMode;
+		TransportRow.IsVisible = !_compactMode;
+		VolumeRow.IsVisible = !_compactMode;
+
+		if (_compactMode)
+		{
+			VoiceBtn.HeightRequest = -1;
+			VoiceBtn.VerticalOptions = LayoutOptions.Fill;
+			VoiceBtn.Margin = new Thickness(0, 0, 0, 330);
+		}
+		else
+		{
+			VoiceBtn.Margin = new Thickness(0);
+			VoiceBtn.HeightRequest = -1;
+			VoiceBtn.VerticalOptions = LayoutOptions.Fill;
+		}
+	}
+
+
+	public static void OpenGoogleMapsNavigateTo(string query)
+	{
+		if (query == "nolocation")
+		{
+			var context = Android.App.Application.Context;
+			var intent = new Intent(Intent.ActionView);
+			intent.SetPackage("com.google.android.apps.maps");
+			intent.AddFlags(ActivityFlags.NewTask);
+			context.StartActivity(intent);
+		}
+		else
+		{
+			var context = Android.App.Application.Context;
+			var uri = Android.Net.Uri.Parse(
+					$"google.navigation:q={Uri.EscapeDataString(query)}&mode=d");
+			var intent = new Intent(Intent.ActionView, uri);
+			intent.SetPackage("com.google.android.apps.maps");
+			intent.AddFlags(ActivityFlags.NewTask);
+			context.StartActivity(intent);
+		}
+	}
+
+
+	// ─── LIFECYCLE ────────────────────────────────────────────────
 	protected override void OnDisappearing()
 	{
 		base.OnDisappearing();
@@ -93,11 +153,12 @@ public partial class MainPage : ContentPage
 		QuickOpenSpotifyBtn.IsVisible = false;
 	}
 
+	// ─── HELPERS ──────────────────────────────────────────────────
 	void SetNowPlaying(string text) =>
-			MainThread.BeginInvokeOnMainThread(() => NowPlayingLabel.Text = text);
+		MainThread.BeginInvokeOnMainThread(() => NowPlayingLabel.Text = text);
 
 	void SetPlayPauseText(string text) =>
-			MainThread.BeginInvokeOnMainThread(() => PlayPauseBtn.Text = text);
+		MainThread.BeginInvokeOnMainThread(() => PlayPauseBtn.Text = text);
 
 	void StartPolling()
 	{
@@ -105,18 +166,18 @@ public partial class MainPage : ContentPage
 		var token = _pollingCts.Token;
 
 		Task.Run(async () =>
-{
-	while (!token.IsCancellationRequested)
-	{
-		await Task.Delay(2000, token).ContinueWith(_ => { });
-		if (token.IsCancellationRequested) break;
-		if (!isListening && !_suppressPoll)
 		{
-			try { await RefreshPlaybackStateAsync(); }
-			catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[Poll] FAILED: {ex}"); }
-		}
-	}
-}, token);
+			while (!token.IsCancellationRequested)
+			{
+				await Task.Delay(2000, token).ContinueWith(_ => { });
+				if (token.IsCancellationRequested) break;
+				if (!isListening && !_suppressPoll)
+				{
+					try { await RefreshPlaybackStateAsync(); }
+					catch (Exception ex) { Log.Error(TAG, $"[Poll] FAILED: {ex}"); }
+				}
+			}
+		}, token);
 	}
 
 	static string FormatTime(double ms)
@@ -125,6 +186,8 @@ public partial class MainPage : ContentPage
 		var ts = TimeSpan.FromMilliseconds(ms);
 		return $"{(int)ts.TotalMinutes}:{ts.Seconds:D2}";
 	}
+
+	// ─── SPOTIFY AUTH ─────────────────────────────────────────────
 	async Task EnsureLoggedInAsync()
 	{
 		try
@@ -165,13 +228,13 @@ public partial class MainPage : ContentPage
 		}
 	}
 
-
+	// ─── PLAYLISTS ────────────────────────────────────────────────
 	async Task FetchPlaylistsAsync()
 	{
 		try
 		{
 			var response = await SendSpotifyRequestAsync(http =>
-							http.GetAsync("https://api.spotify.com/v1/me/playlists?limit=15"));
+				http.GetAsync("https://api.spotify.com/v1/me/playlists?limit=15"));
 
 			if (!response.IsSuccessStatusCode)
 			{
@@ -191,27 +254,26 @@ public partial class MainPage : ContentPage
 				var name = item.GetProperty("name").GetString() ?? "Unknown";
 				var uri = item.GetProperty("uri").GetString() ?? "";
 				var ownerId = item.TryGetProperty("owner", out var owner) && owner.TryGetProperty("id", out var ownerIdProp)
-						? ownerIdProp.GetString()
-						: null;
+					? ownerIdProp.GetString()
+					: null;
 
-				// Optionally skip Spotify-owned playlists
 				if (ownerId == "spotify") continue;
 
 				_playlists.Add((name, uri));
 			}
 
-			System.Diagnostics.Debug.WriteLine($"[Playlists] Loaded {_playlists.Count} playlists");
+			Log.Debug(TAG, $"[Playlists] Loaded {_playlists.Count} playlists");
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Playlists] FETCH FAILED: {ex}");
+			Log.Error(TAG, $"[Playlists] FETCH FAILED: {ex}");
 			NowPlayingLabel.Text = $"Playlist fetch failed: {ex.Message}";
 		}
 	}
 
 	async void ShowPlaylistsPopup()
 	{
-		System.Diagnostics.Debug.WriteLine($"[Popup] _playlists.Count = {_playlists.Count}");
+		Log.Debug(TAG, $"[Popup] _playlists.Count = {_playlists.Count}");
 		PlaylistStack.Children.Clear();
 
 		for (int i = 0; i < _playlists.Count; i++)
@@ -239,7 +301,7 @@ public partial class MainPage : ContentPage
 		PlaylistStack.Children.Clear();
 
 		var commands = new[]
-{
+		{
 			"\"Play\" / \"Pause\" / \"Stop\" / \"Start\"",
 			"\"Skip\" / \"Next\"",
 			"\"Play __ by __\"",
@@ -251,15 +313,16 @@ public partial class MainPage : ContentPage
 			"\"Playlist [number]\"",
 			"\"Info\"",
 			"\"Open Spotify\"",
+			"\"Maps\" / \"Open maps (location)\"",
 			"\"Reload\""
-	};
+		};
 
 		foreach (var cmd in commands)
 		{
 			var label = new Label
 			{
 				Text = cmd,
-				FontSize = 28,
+				FontSize = 26,
 				TextColor = Colors.White,
 				HorizontalTextAlignment = TextAlignment.Center
 			};
@@ -281,14 +344,14 @@ public partial class MainPage : ContentPage
 		{
 			PlaylistStack.Children.Clear();
 			var response = await SendSpotifyRequestAsync(http =>
-					http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
+				http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
 
 			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
 				return;
 
 			if (!response.IsSuccessStatusCode)
 			{
-				System.Diagnostics.Debug.WriteLine($"[Refresh] Non-success: {(int)response.StatusCode}");
+				Log.Warn(TAG, $"[Info] Non-success: {(int)response.StatusCode}");
 				return;
 			}
 
@@ -305,35 +368,32 @@ public partial class MainPage : ContentPage
 
 			var title = track.GetProperty("name").GetString();
 			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-					? artists[0].GetProperty("name").GetString()
-					: "Unknown artist";
+				? artists[0].GetProperty("name").GetString()
+				: "Unknown artist";
 
-			// --- album art ---
 			string? imageUrl = null;
 			if (track.TryGetProperty("album", out var album) &&
-					album.ValueKind == System.Text.Json.JsonValueKind.Object &&
-					album.TryGetProperty("images", out var images) &&
-					images.GetArrayLength() > 0)
+				album.ValueKind == System.Text.Json.JsonValueKind.Object &&
+				album.TryGetProperty("images", out var images) &&
+				images.GetArrayLength() > 0)
 			{
 				var imgIndex = images.GetArrayLength() > 1 ? 1 : 0;
 				if (images[imgIndex].TryGetProperty("url", out var urlProp))
 					imageUrl = urlProp.GetString();
 			}
 
-			// --- album name ---
 			string? albumName = null;
 			if (track.TryGetProperty("album", out var albumObj) &&
-					albumObj.ValueKind == System.Text.Json.JsonValueKind.Object &&
-					albumObj.TryGetProperty("name", out var albumNameProp))
+				albumObj.ValueKind == System.Text.Json.JsonValueKind.Object &&
+				albumObj.TryGetProperty("name", out var albumNameProp))
 			{
 				albumName = albumNameProp.GetString();
 			}
 
-			// --- release date ---
 			string? releaseDate = null;
 			if (track.TryGetProperty("album", out var albumForDate) &&
-					albumForDate.ValueKind == System.Text.Json.JsonValueKind.Object &&
-					albumForDate.TryGetProperty("release_date", out var rdProp))
+				albumForDate.ValueKind == System.Text.Json.JsonValueKind.Object &&
+				albumForDate.TryGetProperty("release_date", out var rdProp))
 			{
 				var raw = rdProp.GetString();
 				if (DateTime.TryParse(raw, out var parsed))
@@ -342,25 +402,17 @@ public partial class MainPage : ContentPage
 					releaseDate = raw;
 			}
 
-			// --- popularity (0-100) ---
-			int? popularity = null;
-			if (track.TryGetProperty("popularity", out var popProp))
-				popularity = popProp.GetInt32();
-
-			// --- duration ---
 			string? duration = null;
 			if (track.TryGetProperty("duration_ms", out var durProp))
 			{
 				var ts = TimeSpan.FromMilliseconds(durProp.GetInt32());
 				duration = ts.TotalHours >= 1
-						? ts.ToString(@"h\:mm\:ss")
-						: ts.ToString(@"m\:ss");
+					? ts.ToString(@"h\:mm\:ss")
+					: ts.ToString(@"m\:ss");
 			}
 
-			// --- explicit flag ---
 			bool isExplicit = track.TryGetProperty("explicit", out var explProp) && explProp.GetBoolean();
 
-			// --- add album art image ---
 			if (imageUrl != null)
 			{
 				var albumImage = new Microsoft.Maui.Controls.Image
@@ -379,20 +431,16 @@ public partial class MainPage : ContentPage
 				PlaylistStack.Children.Add(albumImage);
 			}
 
-			// --- build the display string ---
 			var sb = new System.Text.StringBuilder();
 			sb.AppendLine(title);
 			sb.AppendLine();
 			sb.AppendLine($"by {artist}\n");
 
 			if (albumName != null)
-				sb.AppendLine($"from {albumName}\n");
+				sb.AppendLine($"from \"{albumName}\"\n");
 
 			if (releaseDate != null)
-				sb.AppendLine($"Released \"{releaseDate}\"\n");
-
-			if (popularity.HasValue)
-				sb.AppendLine($"Popularity {popularity}/100\n");
+				sb.AppendLine($"Released {releaseDate}\n");
 
 			if (duration != null)
 				sb.AppendLine($"Duration {duration}\n");
@@ -420,11 +468,12 @@ public partial class MainPage : ContentPage
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[info] FAILED: {ex}");
+			Log.Error(TAG, $"[Info] FAILED: {ex}");
 			SetNowPlaying($"info error: {ex.Message}");
 		}
 	}
 
+	// ─── QUEUE ────────────────────────────────────────────────────
 	async Task<List<(string song, string artist)>> GetUpcomingQueueAsync(int maxCount = 8)
 	{
 		var upcoming = new List<(string song, string artist)>();
@@ -433,11 +482,11 @@ public partial class MainPage : ContentPage
 		try
 		{
 			var response = await SendSpotifyRequestAsync(http =>
-					http.GetAsync("https://api.spotify.com/v1/me/player/queue"));
+				http.GetAsync("https://api.spotify.com/v1/me/player/queue"));
 
 			if (!response.IsSuccessStatusCode)
 			{
-				System.Diagnostics.Debug.WriteLine($"[Queue] Non-success: {(int)response.StatusCode}");
+				Log.Warn(TAG, $"[Queue] Non-success: {(int)response.StatusCode}");
 				return upcoming;
 			}
 
@@ -446,7 +495,7 @@ public partial class MainPage : ContentPage
 			var root = doc.RootElement;
 
 			if (!root.TryGetProperty("queue", out var queueArray) ||
-					queueArray.ValueKind != System.Text.Json.JsonValueKind.Array)
+				queueArray.ValueKind != System.Text.Json.JsonValueKind.Array)
 			{
 				return upcoming;
 			}
@@ -458,17 +507,17 @@ public partial class MainPage : ContentPage
 				var name = item.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : null;
 				if (string.IsNullOrEmpty(name)) continue;
 
-				var artist = item.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-						? artists[0].GetProperty("name").GetString() ?? ""
-						: "";
+				var art = item.TryGetProperty("artists", out var artArr) && artArr.GetArrayLength() > 0
+					? artArr[0].GetProperty("name").GetString() ?? ""
+					: "";
 
-				upcoming.Add((name, artist));
+				upcoming.Add((name, art));
 			}
 			return upcoming;
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Queue] FAILED: {ex}");
+			Log.Error(TAG, $"[Queue] FAILED: {ex}");
 		}
 
 		return upcoming;
@@ -484,7 +533,7 @@ public partial class MainPage : ContentPage
 			return;
 		}
 		int i = 0;
-		foreach (var (song, artist) in queue)
+		foreach (var (song, art) in queue)
 		{
 			var color = i switch
 			{
@@ -495,7 +544,7 @@ public partial class MainPage : ContentPage
 			};
 			var label = new Label
 			{
-				Text = $"{song} - {artist}",
+				Text = $"{song} - {art}",
 				FontSize = 32,
 				TextColor = color,
 				HorizontalTextAlignment = TextAlignment.Center
@@ -510,18 +559,18 @@ public partial class MainPage : ContentPage
 		{
 			PlaylistPopup.IsVisible = false;
 		}
-
 	}
 
-	[Obsolete] // Use queueSong(x, x, true) so that it plays the song while keeping the next up
-	async void playSong(string song, string artist)
+	// ─── PLAY / QUEUE SONGS ──────────────────────────────────────
+	[Obsolete]
+	async void playSong(string song, string art)
 	{
 		if (_accessToken == null) return;
 		try
 		{
-			string query = string.IsNullOrWhiteSpace(artist)
-		? Uri.EscapeDataString($"track:{song}")
-		: Uri.EscapeDataString($"track:{song} artist:{artist}");
+			string query = string.IsNullOrWhiteSpace(art)
+				? Uri.EscapeDataString($"track:{song}")
+				: Uri.EscapeDataString($"track:{song} artist:{art}");
 			string url = $"https://api.spotify.com/v1/search?q={query}&type=track&limit=1";
 			var response = await SendSpotifyRequestAsync(http => http.GetAsync(url));
 			var json = await response.Content.ReadAsStringAsync();
@@ -542,8 +591,8 @@ public partial class MainPage : ContentPage
 			};
 
 			var playResponse = await SendSpotifyRequestAsync(http =>
-					http.PutAsync("https://api.spotify.com/v1/me/player/play",
-							new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json")));
+				http.PutAsync("https://api.spotify.com/v1/me/player/play",
+					new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json")));
 
 			if (playResponse.IsSuccessStatusCode)
 			{
@@ -559,13 +608,10 @@ public partial class MainPage : ContentPage
 				SetNowPlaying($"Play error: {(int)playResponse.StatusCode}");
 			}
 		}
-
 		catch (Exception ex)
 		{
-			{
-				System.Diagnostics.Debug.WriteLine($"[play song] FAILED: {ex}");
-				SetNowPlaying($"play song error: {ex.Message}");
-			}
+			Log.Error(TAG, $"[play song] FAILED: {ex}");
+			SetNowPlaying($"play song error: {ex.Message}");
 		}
 	}
 
@@ -577,7 +623,7 @@ public partial class MainPage : ContentPage
 			return;
 		}
 
-		var allSongs = new List<(string song, string artist)>();
+		var allSongs = new List<(string song, string art)>();
 
 		foreach (var (name, uri) in _playlists)
 		{
@@ -585,12 +631,12 @@ public partial class MainPage : ContentPage
 			{
 				var playlistId = uri.Split(':').Last();
 				var response = await SendSpotifyRequestAsync(http =>
-						http.GetAsync($"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=100"));
+					http.GetAsync($"https://api.spotify.com/v1/playlists/{playlistId}/items?limit=100"));
 
 				if (!response.IsSuccessStatusCode)
 				{
-					System.Diagnostics.Debug.WriteLine($"[all songs] skipped {name}: {(int)response.StatusCode}");
-					continue; // skip this playlist, keep going
+					Log.Warn(TAG, $"[all songs] skipped {name}: {(int)response.StatusCode}");
+					continue;
 				}
 
 				var json = await response.Content.ReadAsStringAsync();
@@ -606,9 +652,9 @@ public partial class MainPage : ContentPage
 						var songName = nameProp.GetString();
 						if (string.IsNullOrEmpty(songName)) continue;
 
-						var artistName = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-								? artists[0].GetProperty("name").GetString() ?? ""
-								: "";
+						var artistName = track.TryGetProperty("artists", out var artArr) && artArr.GetArrayLength() > 0
+							? artArr[0].GetProperty("name").GetString() ?? ""
+							: "";
 
 						allSongs.Add((songName, artistName));
 					}
@@ -616,7 +662,7 @@ public partial class MainPage : ContentPage
 			}
 			catch (Exception ex)
 			{
-				System.Diagnostics.Debug.WriteLine($"[all songs] FAILED on {name}: {ex}");
+				Log.Error(TAG, $"[all songs] FAILED on {name}: {ex}");
 			}
 		}
 
@@ -629,17 +675,16 @@ public partial class MainPage : ContentPage
 		var (chosenSong, chosenArtist) = allSongs[_rand.Next(allSongs.Count)];
 		NowPlayingLabel.Text = $"Queueing: {chosenSong} - {chosenArtist}";
 		queueSong(chosenSong, chosenArtist, true);
-
 	}
 
-	async void queueSong(string song, string artist, bool shouldSkip = false)
+	async void queueSong(string song, string art, bool shouldSkip = false)
 	{
 		if (_accessToken == null) return;
 		try
 		{
-			string query = string.IsNullOrWhiteSpace(artist)
-		? Uri.EscapeDataString($"track:{song}")
-		: Uri.EscapeDataString($"track:{song} artist:{artist}");
+			string query = string.IsNullOrWhiteSpace(art)
+				? Uri.EscapeDataString($"track:{song}")
+				: Uri.EscapeDataString($"track:{song} artist:{art}");
 			string url = $"https://api.spotify.com/v1/search?q={query}&type=track&limit=1";
 			var response = await SendSpotifyRequestAsync(http => http.GetAsync(url));
 			var json = await response.Content.ReadAsStringAsync();
@@ -659,7 +704,7 @@ public partial class MainPage : ContentPage
 
 			string escapedUri = Uri.EscapeDataString(trackUri);
 			var queueResponse = await SendSpotifyRequestAsync(http =>
-					http.PostAsync($"https://api.spotify.com/v1/me/player/queue?uri={escapedUri}", null));
+				http.PostAsync($"https://api.spotify.com/v1/me/player/queue?uri={escapedUri}", null));
 
 			if (queueResponse.IsSuccessStatusCode)
 			{
@@ -677,7 +722,7 @@ public partial class MainPage : ContentPage
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[queue song] FAILED: {ex}");
+			Log.Error(TAG, $"[queue song] FAILED: {ex}");
 			SetNowPlaying($"queue song error: {ex.Message}");
 		}
 	}
@@ -687,6 +732,7 @@ public partial class MainPage : ContentPage
 		popupType = "";
 		PlaylistPopup.IsVisible = false;
 	}
+
 	private int StrToInt(string str)
 	{
 		return str switch
@@ -711,14 +757,15 @@ public partial class MainPage : ContentPage
 			"18" or "eighteen" => 18,
 			"19" or "nineteen" => 19,
 			"20" or "twenty" => 20,
-			_ => 1 // fallback for anything that doesn't match
+			_ => 1
 		};
 	}
 
+	// ─── SPOTIFY REQUEST WRAPPER ──────────────────────────────────
 	async Task<HttpResponseMessage> SendSpotifyRequestAsync(Func<HttpClient, Task<HttpResponseMessage>> request)
 	{
 		_http.DefaultRequestHeaders.Authorization =
-						new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
+			new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 
 		var response = await request(_http);
 
@@ -735,7 +782,7 @@ public partial class MainPage : ContentPage
 
 					using var retryHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 					retryHttp.DefaultRequestHeaders.Authorization =
-									new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
+						new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _accessToken);
 					response = await request(retryHttp);
 				}
 			}
@@ -744,6 +791,7 @@ public partial class MainPage : ContentPage
 		return response;
 	}
 
+	// ─── BUTTON HANDLERS ──────────────────────────────────────────
 	private void OnQuickOpenSpotifyClicked(object? sender, EventArgs e)
 	{
 		OpenSpotifyApp();
@@ -770,7 +818,7 @@ public partial class MainPage : ContentPage
 
 			var endpoint = isPlaying ? "pause" : "play";
 			var response = await SendSpotifyRequestAsync(http =>
-											http.PutAsync($"https://api.spotify.com/v1/me/player/{endpoint}", null));
+				http.PutAsync($"https://api.spotify.com/v1/me/player/{endpoint}", null));
 
 			if (response.IsSuccessStatusCode)
 			{
@@ -780,13 +828,13 @@ public partial class MainPage : ContentPage
 			else
 			{
 				var errorBody = await response.Content.ReadAsStringAsync();
-				System.Diagnostics.Debug.WriteLine($"[PlayPause] 403 body: {errorBody}");
+				Log.Warn(TAG, $"[PlayPause] error body: {errorBody}");
 				NowPlayingLabel.Text = $"Spotify error: {(int)response.StatusCode}";
 			}
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[PlayPause] FAILED: {ex}");
+			Log.Error(TAG, $"[PlayPause] FAILED: {ex}");
 			NowPlayingLabel.Text = $"Error: {ex.Message}";
 		}
 	}
@@ -797,7 +845,6 @@ public partial class MainPage : ContentPage
 		HideScreenText();
 		if (isListening)
 		{
-			// Second tap while listening = force stop
 			_speechCts?.Cancel();
 			await _speechToText.StopListenAsync(CancellationToken.None);
 			ResetVoiceButton();
@@ -836,10 +883,6 @@ public partial class MainPage : ContentPage
 		}
 	}
 
-
-
-
-
 	void ResetVoiceButton()
 	{
 		isListening = false;
@@ -847,12 +890,13 @@ public partial class MainPage : ContentPage
 		VoiceBtn.BackgroundColor = Colors.DarkGreen;
 	}
 
+	// ─── VOICE COMMAND HANDLER ────────────────────────────────────
 	async void OnSpeechCompleted(object? sender, SpeechToTextRecognitionResultCompletedEventArgs args)
 	{
 		HideQuickOpenButton();
 		HideScreenText();
 		var heard = args.RecognitionResult.Text?.ToLowerInvariant() ?? "";
-		System.Diagnostics.Debug.WriteLine($"[Heard] \"{heard}\"");
+		Log.Debug(TAG, $"[Heard] \"{heard}\"");
 		await _speechToText.StopListenAsync(CancellationToken.None);
 		await Task.Delay(600);
 
@@ -876,7 +920,6 @@ public partial class MainPage : ContentPage
 		{
 			ShowUpcomingQueue();
 		}
-
 		else if (new[] { "queue", "q", "cute", "cue" }.Contains(words[0]))
 		{
 			int byIndex = Array.IndexOf(words, "by");
@@ -884,7 +927,6 @@ public partial class MainPage : ContentPage
 			string songName;
 			string artistName = "";
 
-			// If "by" appears after the first word, split song and artist
 			if (byIndex > 1 && byIndex < words.Length)
 			{
 				songName = string.Join(" ", words[1..byIndex]);
@@ -895,18 +937,15 @@ public partial class MainPage : ContentPage
 				songName = string.Join(" ", words[1..]);
 			}
 
-			// Handle special cases
 			if (artistName == "geo") artistName = "gio.";
 			if (artistName == "halsey") artistName = "hulvey";
 
 			NowPlayingLabel.Text = artistName == ""
-					? $"Searching {songName}"
-					: $"Searching {songName} - {artistName}";
+				? $"Searching {songName}"
+				: $"Searching {songName} - {artistName}";
 
 			queueSong(songName, artistName);
 		}
-
-
 		else if (heard.Contains("command"))
 		{
 			ShowCommandsPopup();
@@ -946,13 +985,11 @@ public partial class MainPage : ContentPage
 			if (artistName == "halsey") artistName = "hulvey";
 
 			NowPlayingLabel.Text = artistName == ""
-					? $"Searching {songName}"
-					: $"Searching {songName} - {artistName}";
+				? $"Searching {songName}"
+				: $"Searching {songName} - {artistName}";
 
 			queueSong(songName, artistName, true);
 		}
-
-
 		else if (hasAddWord && heard.Contains("to") && hasQueueWord)
 		{
 			if (words[0] != "add" && words[0] != "and") return;
@@ -965,7 +1002,6 @@ public partial class MainPage : ContentPage
 			string songName;
 			string artistName = "";
 
-			// Only split on "by" if it actually appears before "to"
 			if (byIndex > 1 && byIndex < toIndex)
 			{
 				songName = string.Join(" ", words[1..byIndex]);
@@ -980,8 +1016,8 @@ public partial class MainPage : ContentPage
 			if (artistName == "halsey") artistName = "hulvey";
 
 			NowPlayingLabel.Text = artistName == ""
-					? $"Searching {songName}"
-					: $"Searching {songName} - {artistName}";
+				? $"Searching {songName}"
+				: $"Searching {songName} - {artistName}";
 
 			queueSong(songName, artistName);
 		}
@@ -991,7 +1027,6 @@ public partial class MainPage : ContentPage
 		}
 		else if (heard.Contains("playlist"))
 		{
-
 			int number = 1;
 			foreach (var word in words)
 			{
@@ -1012,7 +1047,6 @@ public partial class MainPage : ContentPage
 		{
 			if (heard.Contains("up"))
 			{
-
 				int amt = 1;
 				foreach (var word in words)
 				{
@@ -1030,7 +1064,6 @@ public partial class MainPage : ContentPage
 			}
 			else
 			{
-
 				int amt = 1;
 				foreach (var word in words)
 				{
@@ -1046,9 +1079,19 @@ public partial class MainPage : ContentPage
 				}
 			}
 		}
-
-
-
+		else if (heard.Contains("open") && heard.Contains("maps"))
+		{
+			string after = heard.Substring(heard.IndexOf("maps") + "maps".Length).Trim();
+			if (after.Length < 1)
+			{
+				OpenGoogleMapsNavigateTo("nolocation");
+			}
+			OpenGoogleMapsNavigateTo(after);
+		}
+		else if (heard.Contains("maps"))
+		{
+			SetCompactMode();
+		}
 		else
 		{
 			NowPlayingLabel.Text = "Sorry, I didn't get that.";
@@ -1057,6 +1100,7 @@ public partial class MainPage : ContentPage
 		ResetVoiceButton();
 	}
 
+	// ─── SPOTIFY APP ──────────────────────────────────────────────
 	private void OpenSpotifyApp()
 	{
 		try
@@ -1080,6 +1124,7 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	// ─── VOLUME ───────────────────────────────────────────────────
 	private void OnVolumeUpClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
@@ -1096,11 +1141,11 @@ public partial class MainPage : ContentPage
 		audioManager?.AdjustStreamVolume(Android.Media.Stream.Music, Adjust.Lower, VolumeNotificationFlags.ShowUi);
 	}
 
+	// ─── MISC BUTTONS ─────────────────────────────────────────────
 	private async void OnCommandsClicked(object? sender, EventArgs e)
 	{
 		ShowCommandsPopup();
 		await RefreshPlaybackStateAsync();
-
 	}
 
 	private async void Reload(object? sender, EventArgs e)
@@ -1110,6 +1155,7 @@ public partial class MainPage : ContentPage
 		await RefreshPlaybackStateAsync();
 	}
 
+	// ─── PLAY PLAYLIST ────────────────────────────────────────────
 	async Task PlayPlaylistAsync(int number)
 	{
 		if (_accessToken == null)
@@ -1135,8 +1181,8 @@ public partial class MainPage : ContentPage
 		};
 
 		var response = await SendSpotifyRequestAsync(http =>
-						http.PutAsync("https://api.spotify.com/v1/me/player/play",
-								new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json")));
+			http.PutAsync("https://api.spotify.com/v1/me/player/play",
+				new StringContent(body.ToJsonString(), System.Text.Encoding.UTF8, "application/json")));
 
 		if (response.IsSuccessStatusCode)
 		{
@@ -1155,6 +1201,7 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	// ─── SKIP ─────────────────────────────────────────────────────
 	private async void OnSkipClicked(object? sender, EventArgs e)
 	{
 		HideQuickOpenButton();
@@ -1168,7 +1215,7 @@ public partial class MainPage : ContentPage
 			}
 
 			var response = await SendSpotifyRequestAsync(http =>
-					http.PostAsync("https://api.spotify.com/v1/me/player/next", null));
+				http.PostAsync("https://api.spotify.com/v1/me/player/next", null));
 
 			if (!response.IsSuccessStatusCode)
 			{
@@ -1185,18 +1232,17 @@ public partial class MainPage : ContentPage
 		}
 	}
 
+	// ─── REFRESH PLAYBACK ─────────────────────────────────────────
 	SemaphoreSlim _refreshLock = new(1, 1);
-	async Task RefreshPlaybackStateAsync() // the magic
+	async Task RefreshPlaybackStateAsync()
 	{
 		if (_accessToken == null) return;
-		if (!await _refreshLock.WaitAsync(0)) return; // skip if already refreshing
+		if (!await _refreshLock.WaitAsync(0)) return;
 
 		try
 		{
 			var response = await SendSpotifyRequestAsync(http =>
-											http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
-
-
+				http.GetAsync("https://api.spotify.com/v1/me/player/currently-playing"));
 
 			if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
 			{
@@ -1216,7 +1262,7 @@ public partial class MainPage : ContentPage
 
 			if (!response.IsSuccessStatusCode)
 			{
-				System.Diagnostics.Debug.WriteLine($"[Refresh] Non-success: {(int)response.StatusCode}");
+				Log.Warn(TAG, $"[Refresh] Non-success: {(int)response.StatusCode}");
 				return;
 			}
 
@@ -1236,8 +1282,8 @@ public partial class MainPage : ContentPage
 
 			var title = track.GetProperty("name").GetString();
 			var artist = track.TryGetProperty("artists", out var artists) && artists.GetArrayLength() > 0
-											? artists[0].GetProperty("name").GetString()
-											: "Unknown artist";
+				? artists[0].GetProperty("name").GetString()
+				: "Unknown artist";
 
 			var progressMs = root.TryGetProperty("progress_ms", out var progressProp) ? progressProp.GetInt64() : 0;
 			var durationMs = track.TryGetProperty("duration_ms", out var durationProp) ? durationProp.GetInt64() : 0;
@@ -1256,11 +1302,13 @@ public partial class MainPage : ContentPage
 		}
 		catch (Exception ex)
 		{
-			System.Diagnostics.Debug.WriteLine($"[Refresh] FAILED: {ex}");
+			Log.Error(TAG, $"[Refresh] FAILED: {ex}");
 			SetNowPlaying($"Refresh error: {ex.Message}");
 		}
 		finally { _refreshLock.Release(); }
 	}
+
+	// ─── VISUALIZER / PROGRESS ────────────────────────────────────
 	void InitVisualizer()
 	{
 		_visualizerTimer = Dispatcher.CreateTimer();
@@ -1293,6 +1341,7 @@ public partial class MainPage : ContentPage
 			}
 		});
 	}
+
 	async void TickProgressBar()
 	{
 		if (!isPlaying || _currentDurationMs <= 0 || isListening)
@@ -1326,7 +1375,7 @@ public partial class MainPage : ContentPage
 			double target = isPlaying ? _rand.Next(6, 38) : 6;
 
 			new Animation(v => bar.HeightRequest = v, bar.HeightRequest, target)
-					.Commit(this, $"BarAnim{i}", 16, 260, Easing.SinInOut);
+				.Commit(this, $"BarAnim{i}", 16, 260, Easing.SinInOut);
 		}
 	}
 }

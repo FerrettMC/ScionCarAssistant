@@ -36,8 +36,7 @@
                 Padding="18,14">
             <Grid RowDefinitions="Auto,Auto,Auto" RowSpacing="10">
 
-                <!-- Status row: pulsing dot + "NOW PLAYING" -->
-                <HorizontalStackLayout Grid.Row="0" 
+                <HorizontalStackLayout Grid.Row="0"
                                     HorizontalOptions="Center"
                                     Spacing="6"
                                     VerticalOptions="Center">
@@ -55,7 +54,6 @@
                         VerticalTextAlignment="Center" />
                 </HorizontalStackLayout>
 
-                <!-- Song name — now bigger -->
                 <Label x:Name="NowPlayingLabel"
                     Grid.Row="1"
                     Text="Nothing playing"
@@ -66,7 +64,6 @@
                     LineBreakMode="WordWrap"
                     MaxLines="3" />
 
-                <!-- Progress bar -->
                 <Grid Grid.Row="2"
                     ColumnDefinitions="Auto,*,Auto"
                     ColumnSpacing="10"
@@ -114,7 +111,8 @@
         </Button>
 
         <!-- ══════════════ TRANSPORT ══════════════ -->
-        <Grid Grid.Row="3"
+        <Grid x:Name="TransportRow"
+              Grid.Row="3"
               ColumnDefinitions="*,10,*,10,*"
               Margin="0,2,0,0">
 
@@ -140,7 +138,8 @@
                     HeightRequest="64"
                     Clicked="Reload" />
 
-            <Button Grid.Column="4"
+            <Button x:Name="SkipBtn"
+                    Grid.Column="4"
                     Text="SKIP ⏭"
                     FontSize="20"
                     FontAttributes="Bold"
@@ -152,11 +151,13 @@
         </Grid>
 
         <!-- ══════════════ VOLUME ══════════════ -->
-        <Grid Grid.Row="4"
-            ColumnDefinitions="*,10,*,10,*"
-            Margin="0,2,0,0">
+        <Grid x:Name="VolumeRow"
+              Grid.Row="4"
+              ColumnDefinitions="*,10,*,10,*"
+              Margin="0,2,0,0">
 
-            <Button Grid.Column="0"
+            <Button x:Name="VolDownBtn"
+                    Grid.Column="0"
                     Text="VOL −"
                     FontSize="16"
                     FontAttributes="Bold"
@@ -177,7 +178,8 @@
                     HeightRequest="46"
                     Clicked="OnCommandsClicked" />
 
-            <Button Grid.Column="4"
+            <Button x:Name="VolUpBtn"
+                    Grid.Column="4"
                     Text="VOL +"
                     FontSize="16"
                     FontAttributes="Bold"
@@ -230,4 +232,5 @@
         </Button>
 
     </Grid>
+
 </ContentPage>
