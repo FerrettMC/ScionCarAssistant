@@ -9,12 +9,35 @@ using Microsoft.Maui;
 using Microsoft.Maui.Storage;
 using Microsoft.Maui.ApplicationModel;
 using Microsoft.Maui.Graphics;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 
 namespace ScionCarAssistant;
 
+
+
 public partial class MainPage : ContentPage
 {
+
+	private static string path = Path.Combine(FileSystem.AppDataDirectory, "data.json");
+
+	public class SongCountType
+	{
+		public SongCountType(string name, string artist, int count)
+		{
+			Name = name;
+			Artist = artist;
+			Count = count;
+		}
+
+		public string Name { get; set; }
+		public string Artist { get; set; }
+		public int Count { get; set; }
+	}
+
+	private static SongCountType _prevSong = new SongCountType("", "", 0);
+
 	volatile bool isPlaying = false;
 	bool isListening = false;
 	private bool _compactMode = false;
@@ -116,6 +139,75 @@ public partial class MainPage : ContentPage
 			context.StartActivity(intent);
 		}
 	}
+
+	private async void AddSong(string name, string artist)
+	{
+		if (name is null || artist is null) return;
+		try
+		{
+			if (!File.Exists(path))
+			{
+				File.WriteAllText(path, new JObject { ["Songs"] = new JArray() }.ToString());
+			}
+
+			var json = JObject.Parse(File.ReadAllText(path));
+
+			if (json["Songs"] == null)
+			{
+				json["Songs"] = new JArray();
+			}
+
+			JArray songs = (JArray)json["Songs"]!;
+
+			songs.Add(new JObject
+			{
+				["Name"] = name,
+				["Artist"] = artist
+			});
+
+			while (songs.Count > 1000)
+			{
+				songs.Remove(1000);
+			}
+
+			File.WriteAllText(path, json.ToString());
+		}
+		catch (Exception ex)
+		{
+			Log.Error(TAG, $"[AddSong] FAILED: {ex}");
+		}
+	}
+	private SongCountType[] GetSongs()
+	{
+		if (!File.Exists(path))
+		{
+			File.WriteAllText(path, new JObject { ["Songs"] = new JArray() }.ToString());
+		}
+
+		var json = JObject.Parse(File.ReadAllText(path));
+
+		if (json["Songs"] == null)
+		{
+			json["Songs"] = new JArray();
+		}
+
+		JArray songs = (JArray)json["Songs"]!;
+
+		SongCountType[] songArray = songs
+				.Select(s => new
+				{
+					Name = (string)((JObject)s)["Name"]!,
+					Artist = (string)((JObject)s)["Artist"]!
+				})
+				.GroupBy(s => new { s.Name, s.Artist })
+				.Select(g => new SongCountType(g.Key.Name, g.Key.Artist, g.Count()))
+				.OrderByDescending(s => s.Count)
+				.ToArray();
+
+		return songArray;
+	}
+
+
 
 
 	// ─── LIFECYCLE ────────────────────────────────────────────────
@@ -314,7 +406,9 @@ public partial class MainPage : ContentPage
 			"\"Info\"",
 			"\"Open Spotify\"",
 			"\"Maps\" / \"Open maps (location)\"",
-			"\"Reload\""
+			"\"Reload\"",
+			"\"Recommend\"",
+			"\"Clear recent\""
 		};
 
 		foreach (var cmd in commands)
@@ -322,7 +416,7 @@ public partial class MainPage : ContentPage
 			var label = new Label
 			{
 				Text = cmd,
-				FontSize = 26,
+				FontSize = 24,
 				TextColor = Colors.White,
 				HorizontalTextAlignment = TextAlignment.Center
 			};
@@ -1092,6 +1186,54 @@ public partial class MainPage : ContentPage
 		{
 			SetCompactMode();
 		}
+		else if (heard.Contains("recommend"))
+		{
+			SongCountType[] songArray = GetSongs();
+			HelperFunctions.Song[] songs = HelperFunctions.RecommendSongs(songArray);
+
+			PlaylistStack.Children.Clear();
+			if (songs.Length == 0)
+			{
+				var label = new Label
+				{
+					Text = $"No recent songs",
+					FontSize = 50,
+					TextColor = Colors.Red,
+					HorizontalTextAlignment = TextAlignment.Center
+				};
+				PlaylistStack.Children.Add(label);
+			}
+			int i = 0;
+			foreach (HelperFunctions.Song song in songs)
+			{
+
+				var label = new Label
+				{
+					Text = $"{song.Name} - {song.Artist}\n",
+					FontSize = 50,
+					TextColor = Colors.White,
+					HorizontalTextAlignment = TextAlignment.Center
+				};
+				PlaylistStack.Children.Add(label);
+				i++;
+			}
+
+			popupType = "recommendedSongs";
+			PlaylistPopup.IsVisible = true;
+			await Task.Delay(10000);
+			if (popupType == "recommendedSongs")
+			{
+				PlaylistPopup.IsVisible = false;
+			}
+
+
+		}
+
+		else if (heard.Contains("recent") && heard.Contains("clear"))
+		{
+			File.WriteAllText(path, new JObject { ["Songs"] = new JArray() }.ToString());
+			SetNowPlaying($"Cleared all recent songs.");
+		}
 		else
 		{
 			NowPlayingLabel.Text = "Sorry, I didn't get that.";
@@ -1285,6 +1427,10 @@ public partial class MainPage : ContentPage
 				? artists[0].GetProperty("name").GetString()
 				: "Unknown artist";
 
+
+
+
+
 			var progressMs = root.TryGetProperty("progress_ms", out var progressProp) ? progressProp.GetInt64() : 0;
 			var durationMs = track.TryGetProperty("duration_ms", out var durationProp) ? durationProp.GetInt64() : 0;
 
@@ -1297,6 +1443,17 @@ public partial class MainPage : ContentPage
 				DurationLabel.Text = FormatTime(durationMs);
 				ElapsedLabel.Text = FormatTime(progressMs);
 			});
+
+			if (_prevSong.Name != title)
+			{
+				_prevSong.Name = title!;
+				_prevSong.Artist = artist!;
+
+				if (progressMs >= 30000)
+				{
+					AddSong(title!, artist!);
+				}
+			}
 
 			SetNowPlaying($"{title} — {artist}");
 		}
